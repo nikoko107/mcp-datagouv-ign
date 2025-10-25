@@ -1,5 +1,110 @@
 # Changelog
 
+## [1.3.0] - 2025-10-25
+
+### Ajouts majeurs
+
+#### 🗺️ Nouveaux outils de Traitement Spatial (GeoPandas)
+
+Ajout de 8 outils de traitement spatial basés sur GeoPandas pour manipuler et analyser des données géographiques :
+
+1. **reproject_geodata**
+   - Reprojection vers n'importe quel CRS (EPSG:4326, EPSG:3857, etc.)
+   - Support de tous les systèmes de coordonnées PROJ
+
+2. **buffer_geodata**
+   - Création de tampons avec distance personnalisable
+   - Options avancées : cap_style, join_style, single_sided
+   - Résolution configurable
+
+3. **intersect_geodata**
+   - Calcul d'intersection entre deux jeux de données
+   - Préserve les attributs des deux sources
+   - Gestion automatique des CRS
+
+4. **clip_geodata**
+   - Découpage spatial avec géométrie de clip
+   - Équivalent de "clip" dans les SIG
+
+5. **convert_geodata_format**
+   - Conversion entre GeoJSON, KML, GeoPackage, Shapefile
+   - Formats binaires encodés en base64
+   - Préservation des attributs
+
+6. **get_geodata_bbox**
+   - Calcul de bounding box (minx, miny, maxx, maxy)
+   - Reprojection de la bbox possible
+
+7. **dissolve_geodata**
+   - Fusion de géométries par attribut
+   - Agrégations personnalisables (sum, mean, etc.)
+   - Fusion globale possible
+
+8. **explode_geodata**
+   - Séparation des multi-géométries en simples
+   - Préservation ou réindexation des entités
+
+#### 📚 Documentation
+
+- Nouveau fichier `RESUME_TRAITEMENTS_SPATIAUX.md` détaillé
+- Module `spatial_processing.py` (~336 lignes)
+- Tests complets `test_spatial_processing.py` (8 tests)
+
+#### 🔧 Technique
+
+- **Module spatial_processing.py** :
+  - Gestion multi-formats (GeoJSON, KML, GPKG, Shapefile)
+  - Encodage base64 pour formats binaires
+  - Fichiers temporaires auto-nettoyés
+  - Gestion d'erreurs robuste (GeoProcessingError)
+
+- **Intégration async** :
+  - Utilisation de `asyncio.to_thread` pour ne pas bloquer
+  - Fonction helper `run_geoprocessing()`
+
+- **Nouvelles dépendances** :
+  - geopandas >= 0.14
+  - shapely >= 2.0
+  - fiona >= 1.9
+  - pyproj >= 3.6
+
+### Tests validés
+
+- ✅ Reprojection EPSG:4326 → EPSG:3857
+- ✅ Buffer 500m en coordonnées métriques
+- ✅ Intersection de polygones
+- ✅ Calcul de bounding box
+- ✅ Dissolution par attribut
+- ✅ Explosion de MultiPolygon en Polygons
+- ✅ Conversion vers Shapefile (zippé, base64)
+- ✅ Gestion d'erreurs pour formats invalides
+
+### Formats supportés
+
+**Texte (UTF-8)** :
+- GeoJSON / JSON
+- KML
+
+**Binaire (base64)** :
+- GeoPackage (.gpkg)
+- Shapefile (.shp + fichiers associés, zippés)
+
+### Statistiques
+
+- **Nombre total d'outils** : 30 → **38** (+8)
+- **Lignes de code** : +336 (spatial_processing.py)
+- **Lignes de tests** : +138 (test_spatial_processing.py)
+- **Formats géographiques** : 4
+
+### Compatibilité
+
+- Python 3.8+
+- Requiert installation de GDAL/GEOS (via geopandas)
+- Compatible avec tous les CRS supportés par PROJ
+- Toutes géométries : Point, Line, Polygon, Multi*
+
+---
+
 ## [1.2.0] - 2025-10-25
 
 ### Ajouts majeurs

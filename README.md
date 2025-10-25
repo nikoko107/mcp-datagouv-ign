@@ -34,6 +34,11 @@ Serveur MCP complet permettant à Claude d'accéder aux données publiques fran�
 pip install -r requirements.txt
 ```
 
+> ℹ️ Les dépendances GeoPandas impliquent GDAL, PROJ et GEOS.  
+> **macOS** : `brew install gdal` avant l'installation Python.  
+> **Linux** : installer les paquets `gdal-bin libgdal-dev proj-bin`.  
+> **Windows** : utiliser une distribution Python incluant les roues GeoPandas (conda/mini-forge recommandé) ou installer GDAL depuis https://www.gisinternals.com/.
+
 ### 2. Configurer Claude Desktop
 
 **macOS** : `~/Library/Application Support/Claude/claude_desktop_config.json`  
@@ -59,7 +64,7 @@ pip install -r requirements.txt
 
 Fermez complètement Claude Desktop et relancez-le.
 
-## 🛠️ Outils disponibles (30 au total)
+## 🛠️ Outils disponibles (38 au total)
 
 ### Data.gouv.fr (6 outils)
 - `search_datasets` - Rechercher des jeux de données
@@ -102,6 +107,16 @@ Fermez complètement Claude Desktop et relancez-le.
 - `search_departements` - Rechercher des départements
 - `search_regions` - Rechercher des régions
 - `get_region_info` - Info région
+
+### Traitements spatiaux (8 outils)
+- `reproject_geodata` - Reprojeter un jeu de données vers un CRS cible
+- `buffer_geodata` - Calculer un tampon métrique en contrôlant cap/join style
+- `intersect_geodata` - Intersection entre deux couches vectorielles
+- `clip_geodata` - Découper une couche par une géométrie de clip
+- `convert_geodata_format` - Conversion GeoJSON ↔ KML ↔ GeoPackage ↔ Shapefile (base64)
+- `get_geodata_bbox` - Retourner la bounding box (minx/miny/maxx/maxy)
+- `dissolve_geodata` - Regrouper les géométries (dissolve) avec agrégations attributaires
+- `explode_geodata` - Désassembler les géométries multi-parties
 
 ## 💡 Exemples d'utilisation
 
