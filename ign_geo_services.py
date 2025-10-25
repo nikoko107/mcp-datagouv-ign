@@ -1,6 +1,7 @@
 """
 Module pour accéder aux services géographiques de l'IGN
-Supporte WMTS (tuiles), WMS (cartes), WFS (données vectorielles)
+Supporte WMTS (tuiles), WMS (cartes), WFS (données vectorielles),
+Navigation (itinéraires, isochrones), Altimétrie (altitude, profils)
 """
 
 import xml.etree.ElementTree as ET
@@ -17,6 +18,8 @@ class IGNGeoServices:
     ROUTE_URL = "https://data.geopf.fr/navigation/itineraire"
     ISOCHRONE_URL = "https://data.geopf.fr/navigation/isochrone"
     GETCAPABILITIES_URL = "https://data.geopf.fr/navigation/getcapabilities"
+    ALTIMETRY_BASE_URL = "https://data.geopf.fr/altimetrie/1.0"
+    ALTIMETRY_RESOURCES_URL = "https://data.geopf.fr/altimetrie/1.0/resources"
     
     NAMESPACES = {
         'wmts': 'http://www.opengis.net/wmts/1.0',
@@ -262,5 +265,90 @@ class IGNGeoServices:
             params["constraints"] = json.dumps(constraints)
 
         response = await client.get(self.ISOCHRONE_URL, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_altimetry_resources(self, client: httpx.AsyncClient) -> Dict:
+        """Récupère la liste des ressources altimétriques disponibles"""
+        response = await client.get(self.ALTIMETRY_RESOURCES_URL)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_elevation(
+        self,
+        client: httpx.AsyncClient,
+        lon: str,
+        lat: str,
+        resource: str = "ign_rge_alti_wld",
+        delimiter: str = "|",
+        zonly: bool = False,
+        measures: bool = False
+    ) -> Dict:
+        """
+        Récupère l'altitude d'un ou plusieurs points
+
+        Args:
+            lon: Longitude(s) séparée(s) par le délimiteur (max 5000 points)
+            lat: Latitude(s) séparée(s) par le délimiteur (max 5000 points)
+            resource: Ressource altimétrique à utiliser
+            delimiter: Séparateur de coordonnées (|, ;, ou ,)
+            zonly: Si True, retourne uniquement les valeurs d'altitude
+            measures: Si True, inclut les détails de mesure multi-sources
+
+        Returns:
+            Dict contenant les altitudes avec coordonnées et précision
+        """
+        params = {
+            "lon": lon,
+            "lat": lat,
+            "resource": resource,
+            "delimiter": delimiter,
+            "zonly": str(zonly).lower(),
+            "measures": str(measures).lower()
+        }
+
+        url = f"{self.ALTIMETRY_BASE_URL}/calcul/alti/rest/elevation.json"
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_elevation_line(
+        self,
+        client: httpx.AsyncClient,
+        lon: str,
+        lat: str,
+        resource: str = "ign_rge_alti_wld",
+        delimiter: str = "|",
+        profile_mode: str = "simple",
+        sampling: int = 50,
+        zonly: bool = False
+    ) -> Dict:
+        """
+        Calcule un profil altimétrique le long d'une ligne
+
+        Args:
+            lon: Longitudes des points de la ligne séparés par le délimiteur
+            lat: Latitudes des points de la ligne séparés par le délimiteur
+            resource: Ressource altimétrique à utiliser
+            delimiter: Séparateur de coordonnées (|, ;, ou ,)
+            profile_mode: Mode de calcul (simple ou accurate)
+            sampling: Nombre de points d'échantillonnage (2-5000)
+            zonly: Si True, retourne uniquement les valeurs d'altitude
+
+        Returns:
+            Dict contenant le profil avec altitudes et dénivelés positif/négatif
+        """
+        params = {
+            "lon": lon,
+            "lat": lat,
+            "resource": resource,
+            "delimiter": delimiter,
+            "profile_mode": profile_mode,
+            "sampling": str(sampling),
+            "zonly": str(zonly).lower()
+        }
+
+        url = f"{self.ALTIMETRY_BASE_URL}/calcul/alti/rest/elevationLine.json"
+        response = await client.get(url, params=params)
         response.raise_for_status()
         return response.json()

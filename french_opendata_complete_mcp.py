@@ -391,6 +391,94 @@ async def list_tools() -> list[Tool]:
                 "required": ["point", "cost_value"],
             },
         ),
+
+        # IGN ALTIMETRIE (3 outils)
+        Tool(
+            name="get_altimetry_resources",
+            description="Récupérer la liste des ressources altimétriques disponibles (MNT, MNS, etc.)",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="get_elevation",
+            description="Récupérer l'altitude d'un ou plusieurs points géographiques",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lon": {
+                        "type": "string",
+                        "description": "Longitude(s) séparée(s) par | (ex: '2.3522' ou '2.3|2.4|2.5')"
+                    },
+                    "lat": {
+                        "type": "string",
+                        "description": "Latitude(s) séparée(s) par | (ex: '48.8566' ou '48.8|48.9|49.0')"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "ign_rge_alti_wld",
+                        "description": "Ressource altimétrique (ign_rge_alti_wld pour mondial)"
+                    },
+                    "delimiter": {
+                        "type": "string",
+                        "default": "|",
+                        "description": "Séparateur de coordonnées: | ; ou ,"
+                    },
+                    "zonly": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Retourner uniquement les altitudes (sans coordonnées)"
+                    },
+                    "measures": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Inclure les détails de mesure multi-sources"
+                    },
+                },
+                "required": ["lon", "lat"],
+            },
+        ),
+        Tool(
+            name="get_elevation_line",
+            description="Calculer un profil altimétrique le long d'une ligne (dénivelés positif/négatif)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lon": {
+                        "type": "string",
+                        "description": "Longitudes des points de la ligne séparés par | (minimum 2 points)"
+                    },
+                    "lat": {
+                        "type": "string",
+                        "description": "Latitudes des points de la ligne séparés par | (minimum 2 points)"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "ign_rge_alti_wld",
+                        "description": "Ressource altimétrique"
+                    },
+                    "delimiter": {
+                        "type": "string",
+                        "default": "|",
+                        "description": "Séparateur: | ; ou ,"
+                    },
+                    "profile_mode": {
+                        "type": "string",
+                        "default": "simple",
+                        "description": "Mode de calcul: simple (rapide) ou accurate (précis)"
+                    },
+                    "sampling": {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Nombre de points d'échantillonnage (2-5000)"
+                    },
+                    "zonly": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Retourner uniquement les altitudes"
+                    },
+                },
+                "required": ["lon", "lat"],
+            },
+        ),
     ]
 
 
@@ -775,6 +863,51 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             )
 
             return [TextContent(type="text", text=json.dumps(isochrone_data, ensure_ascii=False, indent=2))]
+
+        # ====================================================================
+        # IGN ALTIMETRIE
+        # ====================================================================
+
+        elif name == "get_altimetry_resources":
+            resources = await ign_services.get_altimetry_resources(client)
+            return [TextContent(type="text", text=json.dumps(resources, ensure_ascii=False, indent=2))]
+
+        elif name == "get_elevation":
+            elevation_data = await ign_services.get_elevation(
+                client=client,
+                lon=arguments["lon"],
+                lat=arguments["lat"],
+                resource=arguments.get("resource", "ign_rge_alti_wld"),
+                delimiter=arguments.get("delimiter", "|"),
+                zonly=arguments.get("zonly", False),
+                measures=arguments.get("measures", False)
+            )
+
+            return [TextContent(type="text", text=json.dumps(elevation_data, ensure_ascii=False, indent=2))]
+
+        elif name == "get_elevation_line":
+            profile_data = await ign_services.get_elevation_line(
+                client=client,
+                lon=arguments["lon"],
+                lat=arguments["lat"],
+                resource=arguments.get("resource", "ign_rge_alti_wld"),
+                delimiter=arguments.get("delimiter", "|"),
+                profile_mode=arguments.get("profile_mode", "simple"),
+                sampling=arguments.get("sampling", 50),
+                zonly=arguments.get("zonly", False)
+            )
+
+            # Ajouter un résumé lisible si disponible
+            result = profile_data
+            if "height_differences" in profile_data:
+                hd = profile_data["height_differences"]
+                summary = {
+                    "summary": f"Dénivelé positif: {hd.get('positive', 0)} m, Dénivelé négatif: {hd.get('negative', 0)} m",
+                    "profile": profile_data
+                }
+                result = summary
+
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
         else:
             raise ValueError(f"Unknown tool: {name}")

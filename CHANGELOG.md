@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.2.0] - 2025-10-25
+
+### Ajouts majeurs
+
+#### ⛰️ Nouvelles fonctionnalités d'Altimétrie IGN
+
+Ajout de 3 nouveaux outils pour le calcul d'altitudes et de profils altimétriques :
+
+1. **get_altimetry_resources**
+   - Liste les ressources altimétriques disponibles
+   - Affiche les MNT (Modèles Numériques de Terrain) accessibles
+   - Détails sur zones de couverture et précision
+
+2. **get_elevation**
+   - Récupère l'altitude d'un ou plusieurs points (max 5000)
+   - Support multi-points avec délimiteur personnalisable
+   - Option pour détails de mesure multi-sources
+   - Précision à 2 décimales
+
+3. **get_elevation_line**
+   - Calcule un profil altimétrique le long d'une ligne
+   - Dénivelés positif et négatif cumulés
+   - Modes : simple (rapide) ou accurate (précis)
+   - Échantillonnage configurable (2-5000 points)
+
+#### 📚 Documentation
+
+- Nouveau fichier `EXEMPLES_ALTIMETRIE.md` avec 7+ exemples détaillés
+- Mise à jour du README (30 outils au total)
+- Script de test `test_altimetrie.py` avec 5 tests validés
+
+#### 🔧 Technique
+
+- Ajout de 3 nouvelles méthodes dans `ign_geo_services.py` :
+  - `get_altimetry_resources()`
+  - `get_elevation()`
+  - `get_elevation_line()`
+- Support des paramètres : delimiter, zonly, measures, profile_mode, sampling
+- Gestion des erreurs et valeurs non-data (-99999)
+
+### Tests validés
+
+- ✅ Altitude du Mont Blanc : 4759.2 m
+- ✅ Multi-points : Paris (35m), Lyon (168m), Marseille (1m)
+- ✅ Profil Paris-Versailles : +159m / -60m
+- ✅ Profil montagnard Grenoble-Alpe d'Huez : +4944m / -3348m
+
+### Statistiques
+
+- **Nombre total d'outils** : 27 → **30** (+3)
+- **APIs IGN** : 4 (Navigation) → **5** (+Altimétrie)
+- **Nouveaux endpoints** : 3
+
+### Ressources disponibles
+
+- **ign_rge_alti_wld** : Ressource mondiale (France + DOM-TOM)
+- 9 ressources altimétriques au total
+
+### Compatibilité
+
+- Python 3.8+
+- Aucune nouvelle dépendance requise
+- Compatible avec toutes les versions existantes
+
+---
+
 ## [1.1.0] - 2025-10-25
 
 ### Ajouts majeurs

@@ -9,12 +9,13 @@ Serveur MCP complet permettant à Claude d'accéder aux données publiques fran�
 - Informations sur les organisations
 - Réutilisations de données
 
-### 2. **IGN Géoplateforme** - Services cartographiques et navigation nationaux
+### 2. **IGN Géoplateforme** - Services cartographiques, navigation et altimétrie
 - **WMTS** : Tuiles de cartes pré-générées (rapide)
 - **WMS** : Cartes à la demande (personnalisable)
 - **WFS** : Données vectorielles (analyse)
 - **Itinéraire** : Calcul d'itinéraires optimisés
 - **Isochrone** : Zones d'accessibilité temporelle/distance
+- **Altimétrie** : Calcul d'altitude et profils altimétriques
 
 ### 3. **API Adresse** - Géocodage national
 - Convertir adresses → coordonnées GPS
@@ -58,7 +59,7 @@ pip install -r requirements.txt
 
 Fermez complètement Claude Desktop et relancez-le.
 
-## 🛠️ Outils disponibles (27 au total)
+## 🛠️ Outils disponibles (30 au total)
 
 ### Data.gouv.fr (6 outils)
 - `search_datasets` - Rechercher des jeux de données
@@ -83,6 +84,11 @@ Fermez complètement Claude Desktop et relancez-le.
 - `get_route_capabilities` - Récupérer les capacités (ressources, profils)
 - `calculate_route` - Calculer un itinéraire entre deux points
 - `calculate_isochrone` - Calculer une isochrone/isodistance
+
+### IGN Géoplateforme - Altimétrie (3 outils)
+- `get_altimetry_resources` - Lister les ressources altimétriques (MNT, MNS)
+- `get_elevation` - Obtenir l'altitude d'un ou plusieurs points
+- `get_elevation_line` - Calculer un profil altimétrique (dénivelés)
 
 ### API Adresse (3 outils)
 - `geocode_address` - Adresse → GPS
@@ -124,16 +130,26 @@ Fermez complètement Claude Desktop et relancez-le.
 "Montre-moi les zones accessibles en 30 minutes en voiture depuis le centre de Marseille"
 ```
 
+### Altimétrie
+```
+"Quelle est l'altitude du Mont Blanc ?"
+
+"Calcule le profil altimétrique entre Grenoble et l'Alpe d'Huez avec les dénivelés"
+```
+
 ## 📁 Structure des fichiers
 
 ```
 mcp-datagouv-ign/
 ├── french_opendata_complete_mcp.py    # Serveur principal
-├── ign_geo_services.py                # Module IGN (carto + navigation)
-├── test_navigation.py                 # Tests des fonctions navigation
+├── ign_geo_services.py                # Module IGN (carto + navigation + altimétrie)
+├── test_navigation.py                 # Tests navigation
+├── test_altimetrie.py                 # Tests altimétrie
 ├── requirements.txt                   # Dépendances
 ├── README.md                          # Documentation principale
-└── EXEMPLES_NAVIGATION.md             # Exemples détaillés navigation
+├── EXEMPLES_NAVIGATION.md             # Exemples détaillés navigation
+├── EXEMPLES_ALTIMETRIE.md             # Exemples détaillés altimétrie
+└── CHANGELOG.md                       # Historique des versions
 ```
 
 ## 🔧 Dépannage
@@ -156,6 +172,7 @@ mcp-datagouv-ign/
 - **data.gouv.fr** : https://doc.data.gouv.fr/api/
 - **IGN Géoplateforme** : https://geoservices.ign.fr/
 - **IGN Navigation** : https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire
+- **IGN Altimétrie** : https://geoservices.ign.fr/documentation/services/services-geoplateforme/altimetrie
 - **API Adresse** : https://adresse.data.gouv.fr/api-doc/adresse
 - **API Geo** : https://geo.api.gouv.fr/
 
