@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "french-opendata": {
+      "command": "python",
+      "args": [
+        "/CHEMIN/ABSOLU/VERS/french_opendata_complete_mcp.py"
+      ]
+    }
+  }
+}
