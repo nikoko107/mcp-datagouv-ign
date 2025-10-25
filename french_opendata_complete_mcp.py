@@ -112,7 +112,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         
-        # IGN GÉOPLATEFORME (9 outils)
+        # IGN GÉOPLATEFORME (11 outils)
         Tool(
             name="list_wmts_layers",
             description="Lister toutes les couches cartographiques WMTS disponibles (tuiles pré-générées)",
@@ -203,7 +203,89 @@ async def list_tools() -> list[Tool]:
                 "required": ["typename"],
             },
         ),
-        
+        Tool(
+            name="calculate_route",
+            description="Calculer un itinéraire entre deux points avec l'API IGN Navigation (voiture, piéton, etc.)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start_lon": {"type": "number", "description": "Longitude du point de départ"},
+                    "start_lat": {"type": "number", "description": "Latitude du point de départ"},
+                    "end_lon": {"type": "number", "description": "Longitude du point d'arrivée"},
+                    "end_lat": {"type": "number", "description": "Latitude du point d'arrivée"},
+                    "resource": {
+                        "type": "string",
+                        "default": "bdtopo-valhalla",
+                        "description": "Moteur de calcul (bdtopo-valhalla, bdtopo-osrm, bdtopo-pgr)"
+                    },
+                    "profile": {
+                        "type": "string",
+                        "default": "car",
+                        "description": "Profil de déplacement (car, pedestrian)"
+                    },
+                    "optimization": {
+                        "type": "string",
+                        "default": "fastest",
+                        "description": "Type d'optimisation (fastest, shortest)"
+                    },
+                    "get_steps": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Retourner les instructions détaillées"
+                    },
+                    "intermediates": {
+                        "type": "string",
+                        "description": "Points intermédiaires (format: lon1,lat1|lon2,lat2)"
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": "Contraintes de voyage (ex: avoidTolls, avoidHighways)"
+                    }
+                },
+                "required": ["start_lon", "start_lat", "end_lon", "end_lat"],
+            },
+        ),
+        Tool(
+            name="calculate_isochrone",
+            description="Calculer une zone accessible depuis un point en un temps donné (isochrone) ou une distance donnée (isodistance)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lon": {"type": "number", "description": "Longitude du point de référence"},
+                    "lat": {"type": "number", "description": "Latitude du point de référence"},
+                    "cost_value": {
+                        "type": "integer",
+                        "description": "Valeur de coût : temps en secondes pour isochrone (ex: 600 = 10min) ou distance en mètres pour isodistance"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "bdtopo-valhalla",
+                        "description": "Moteur de calcul (bdtopo-valhalla, bdtopo-osrm, bdtopo-pgr)"
+                    },
+                    "profile": {
+                        "type": "string",
+                        "default": "car",
+                        "description": "Profil de déplacement (car, pedestrian)"
+                    },
+                    "cost_type": {
+                        "type": "string",
+                        "default": "time",
+                        "description": "Type de coût (time pour isochrone, distance pour isodistance)"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "default": "departure",
+                        "description": "Direction (departure: zone accessible depuis le point, arrival: zone depuis laquelle on peut rejoindre le point)"
+                    },
+                    "constraints": {
+                        "type": "string",
+                        "description": "Contraintes de voyage (ex: avoidTolls, avoidHighways)"
+                    }
+                },
+                "required": ["lon", "lat", "cost_value"],
+            },
+        ),
+
         # API ADRESSE (3 outils)
         Tool(
             name="geocode_address",
@@ -504,9 +586,39 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             response = await client.get(ign_services.WFS_URL, params=params)
             response.raise_for_status()
             data = response.json()
-            
+
             return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
-        
+
+        elif name == "calculate_route":
+            result = await ign_services.calculate_route(
+                client,
+                start_lon=arguments["start_lon"],
+                start_lat=arguments["start_lat"],
+                end_lon=arguments["end_lon"],
+                end_lat=arguments["end_lat"],
+                resource=arguments.get("resource", "bdtopo-valhalla"),
+                profile=arguments.get("profile", "car"),
+                optimization=arguments.get("optimization", "fastest"),
+                get_steps=arguments.get("get_steps", True),
+                intermediates=arguments.get("intermediates"),
+                constraints=arguments.get("constraints")
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "calculate_isochrone":
+            result = await ign_services.calculate_isochrone(
+                client,
+                lon=arguments["lon"],
+                lat=arguments["lat"],
+                cost_value=arguments["cost_value"],
+                resource=arguments.get("resource", "bdtopo-valhalla"),
+                profile=arguments.get("profile", "car"),
+                cost_type=arguments.get("cost_type", "time"),
+                direction=arguments.get("direction", "departure"),
+                constraints=arguments.get("constraints")
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
         # ====================================================================
         # API ADRESSE
         # ====================================================================

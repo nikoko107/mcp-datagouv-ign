@@ -10,10 +10,12 @@ import httpx
 
 class IGNGeoServices:
     """Client pour les services géographiques IGN"""
-    
+
     WMTS_URL = "https://data.geopf.fr/wmts"
     WMS_URL = "https://data.geopf.fr/wms-r"
     WFS_URL = "https://data.geopf.fr/wfs"
+    NAVIGATION_ROUTE_URL = "https://data.geopf.fr/navigation/itineraire"
+    NAVIGATION_ISOCHRONE_URL = "https://data.geopf.fr/navigation/isochrone"
     
     NAMESPACES = {
         'wmts': 'http://www.opengis.net/wmts/1.0',
@@ -145,3 +147,108 @@ class IGNGeoServices:
             f"LAYERS={layers}&STYLES=&FORMAT={format}&"
             f"CRS=EPSG:4326&BBOX={bbox}&WIDTH={width}&HEIGHT={height}"
         )
+
+    async def calculate_route(
+        self,
+        client: httpx.AsyncClient,
+        start_lon: float,
+        start_lat: float,
+        end_lon: float,
+        end_lat: float,
+        resource: str = "bdtopo-valhalla",
+        profile: str = "car",
+        optimization: str = "fastest",
+        get_steps: bool = True,
+        geometry_format: str = "geojson",
+        intermediates: Optional[str] = None,
+        constraints: Optional[str] = None
+    ) -> Dict:
+        """
+        Calcule un itinéraire entre deux points
+
+        Args:
+            client: Client HTTP asyncio
+            start_lon: Longitude du point de départ
+            start_lat: Latitude du point de départ
+            end_lon: Longitude du point d'arrivée
+            end_lat: Latitude du point d'arrivée
+            resource: Moteur de calcul (bdtopo-valhalla, bdtopo-osrm, bdtopo-pgr)
+            profile: Profil de déplacement (car, pedestrian)
+            optimization: Type d'optimisation (fastest, shortest)
+            get_steps: Retourner les instructions détaillées
+            geometry_format: Format de la géométrie (geojson, polyline)
+            intermediates: Points intermédiaires (format: lon1,lat1|lon2,lat2)
+            constraints: Contraintes de voyage (ex: avoidTolls)
+
+        Returns:
+            Dict contenant l'itinéraire calculé
+        """
+        params = {
+            "resource": resource,
+            "start": f"{start_lon},{start_lat}",
+            "end": f"{end_lon},{end_lat}",
+            "profile": profile,
+            "optimization": optimization,
+            "geometryFormat": geometry_format,
+        }
+
+        if get_steps:
+            params["getSteps"] = "true"
+
+        if intermediates:
+            params["intermediates"] = intermediates
+
+        if constraints:
+            params["constraints"] = constraints
+
+        response = await client.get(self.NAVIGATION_ROUTE_URL, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def calculate_isochrone(
+        self,
+        client: httpx.AsyncClient,
+        lon: float,
+        lat: float,
+        cost_value: int,
+        resource: str = "bdtopo-valhalla",
+        profile: str = "car",
+        cost_type: str = "time",
+        direction: str = "departure",
+        geometry_format: str = "geojson",
+        constraints: Optional[str] = None
+    ) -> Dict:
+        """
+        Calcule une isochrone ou isodistance depuis/vers un point
+
+        Args:
+            client: Client HTTP asyncio
+            lon: Longitude du point
+            lat: Latitude du point
+            cost_value: Valeur de coût (temps en secondes ou distance en mètres)
+            resource: Moteur de calcul (bdtopo-valhalla, bdtopo-osrm, bdtopo-pgr)
+            profile: Profil de déplacement (car, pedestrian)
+            cost_type: Type de coût (time pour isochrone, distance pour isodistance)
+            direction: Direction (departure depuis le point, arrival vers le point)
+            geometry_format: Format de la géométrie (geojson, polyline)
+            constraints: Contraintes de voyage (ex: avoidTolls)
+
+        Returns:
+            Dict contenant l'isochrone/isodistance calculée en GeoJSON
+        """
+        params = {
+            "resource": resource,
+            "point": f"{lon},{lat}",
+            "costType": cost_type,
+            "costValue": str(cost_value),
+            "profile": profile,
+            "direction": direction,
+            "geometryFormat": geometry_format,
+        }
+
+        if constraints:
+            params["constraints"] = constraints
+
+        response = await client.get(self.NAVIGATION_ISOCHRONE_URL, params=params)
+        response.raise_for_status()
+        return response.json()
