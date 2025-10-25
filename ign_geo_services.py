@@ -10,10 +10,13 @@ import httpx
 
 class IGNGeoServices:
     """Client pour les services géographiques IGN"""
-    
+
     WMTS_URL = "https://data.geopf.fr/wmts"
     WMS_URL = "https://data.geopf.fr/wms-r"
     WFS_URL = "https://data.geopf.fr/wfs"
+    ROUTE_URL = "https://data.geopf.fr/navigation/itineraire"
+    ISOCHRONE_URL = "https://data.geopf.fr/navigation/isochrone"
+    GETCAPABILITIES_URL = "https://data.geopf.fr/navigation/getcapabilities"
     
     NAMESPACES = {
         'wmts': 'http://www.opengis.net/wmts/1.0',
@@ -145,3 +148,119 @@ class IGNGeoServices:
             f"LAYERS={layers}&STYLES=&FORMAT={format}&"
             f"CRS=EPSG:4326&BBOX={bbox}&WIDTH={width}&HEIGHT={height}"
         )
+
+    async def get_route_capabilities(self, client: httpx.AsyncClient) -> Dict:
+        """Récupère les capacités du service de navigation (ressources, profils, optimisations)"""
+        response = await client.get(self.GETCAPABILITIES_URL)
+        response.raise_for_status()
+        return response.json()
+
+    async def calculate_route(
+        self,
+        client: httpx.AsyncClient,
+        start: str,
+        end: str,
+        resource: str = "bdtopo-osrm",
+        profile: Optional[str] = None,
+        optimization: str = "fastest",
+        intermediates: Optional[List[str]] = None,
+        geometry_format: str = "geojson",
+        get_steps: bool = True,
+        get_bbox: bool = True,
+        constraints: Optional[List[Dict]] = None,
+        distance_unit: str = "kilometer",
+        time_unit: str = "hour"
+    ) -> Dict:
+        """
+        Calcule un itinéraire entre deux points
+
+        Args:
+            start: Point de départ au format "longitude,latitude"
+            end: Point d'arrivée au format "longitude,latitude"
+            resource: Graphe de navigation (bdtopo-osrm, bdtopo-valhalla, bdtopo-pgr)
+            profile: Mode de transport (car, pedestrian)
+            optimization: Mode de calcul (fastest, shortest)
+            intermediates: Liste de points intermédiaires
+            geometry_format: Format de la géométrie (geojson, polyline)
+            get_steps: Inclure les étapes détaillées
+            get_bbox: Inclure l'emprise de l'itinéraire
+            constraints: Liste de contraintes (banned, preferred, unpreferred)
+            distance_unit: Unité de distance (meter, kilometer, mile)
+            time_unit: Unité de temps (second, minute, hour)
+        """
+        params = {
+            "resource": resource,
+            "start": start,
+            "end": end,
+            "optimization": optimization,
+            "geometryFormat": geometry_format,
+            "getSteps": str(get_steps).lower(),
+            "getBbox": str(get_bbox).lower(),
+            "distanceUnit": distance_unit,
+            "timeUnit": time_unit
+        }
+
+        if profile:
+            params["profile"] = profile
+
+        if intermediates:
+            params["intermediates"] = "|".join(intermediates)
+
+        if constraints:
+            import json
+            params["constraints"] = json.dumps(constraints)
+
+        response = await client.get(self.ROUTE_URL, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def calculate_isochrone(
+        self,
+        client: httpx.AsyncClient,
+        point: str,
+        cost_value: float,
+        cost_type: str = "time",
+        resource: str = "bdtopo-valhalla",
+        profile: Optional[str] = None,
+        direction: str = "departure",
+        geometry_format: str = "geojson",
+        constraints: Optional[List[Dict]] = None,
+        distance_unit: str = "kilometer",
+        time_unit: str = "hour"
+    ) -> Dict:
+        """
+        Calcule une isochrone ou une isodistance
+
+        Args:
+            point: Point central au format "longitude,latitude"
+            cost_value: Valeur de temps ou distance
+            cost_type: Type de coût (time, distance)
+            resource: Graphe de navigation (bdtopo-valhalla, bdtopo-pgr)
+            profile: Mode de transport (car, pedestrian)
+            direction: Direction de calcul (departure, arrival)
+            geometry_format: Format de la géométrie (geojson, polyline)
+            constraints: Liste de contraintes (banned uniquement pour isochrone)
+            distance_unit: Unité de distance (meter, kilometer, mile)
+            time_unit: Unité de temps (second, minute, hour)
+        """
+        params = {
+            "resource": resource,
+            "point": point,
+            "costValue": str(cost_value),
+            "costType": cost_type,
+            "direction": direction,
+            "geometryFormat": geometry_format,
+            "distanceUnit": distance_unit,
+            "timeUnit": time_unit
+        }
+
+        if profile:
+            params["profile"] = profile
+
+        if constraints:
+            import json
+            params["constraints"] = json.dumps(constraints)
+
+        response = await client.get(self.ISOCHRONE_URL, params=params)
+        response.raise_for_status()
+        return response.json()

@@ -2,7 +2,7 @@
 """
 Serveur MCP complet pour data.gouv.fr + 4 APIs nationales françaises
 - data.gouv.fr : Données publiques
-- IGN Géoplateforme : Cartographie (WMTS, WMS, WFS)
+- IGN Géoplateforme : Cartographie (WMTS, WMS, WFS) + Navigation (Itinéraire, Isochrone)
 - API Adresse : Géocodage national
 - API Geo : Découpage administratif
 """
@@ -306,6 +306,89 @@ async def list_tools() -> list[Tool]:
                     "code": {"type": "string", "description": "Code de la région"},
                 },
                 "required": ["code"],
+            },
+        ),
+
+        # IGN NAVIGATION (3 outils)
+        Tool(
+            name="get_route_capabilities",
+            description="Récupérer les capacités du service de navigation IGN (ressources disponibles, profils, optimisations)",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="calculate_route",
+            description="Calculer un itinéraire entre deux points avec l'API IGN",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start": {"type": "string", "description": "Point de départ (longitude,latitude)"},
+                    "end": {"type": "string", "description": "Point d'arrivée (longitude,latitude)"},
+                    "resource": {
+                        "type": "string",
+                        "default": "bdtopo-osrm",
+                        "description": "Graphe de navigation: bdtopo-osrm (rapide), bdtopo-valhalla (équilibré), bdtopo-pgr (contraintes avancées)"
+                    },
+                    "profile": {"type": "string", "description": "Mode de transport: car, pedestrian"},
+                    "optimization": {
+                        "type": "string",
+                        "default": "fastest",
+                        "description": "Mode d'optimisation: fastest (plus rapide) ou shortest (plus court)"
+                    },
+                    "intermediates": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Liste de points intermédiaires (longitude,latitude)"
+                    },
+                    "get_steps": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Inclure les étapes détaillées de l'itinéraire"
+                    },
+                    "constraints": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Contraintes de routage (banned, preferred, unpreferred)"
+                    },
+                },
+                "required": ["start", "end"],
+            },
+        ),
+        Tool(
+            name="calculate_isochrone",
+            description="Calculer une isochrone (zone accessible en un temps donné) ou isodistance (zone accessible en une distance donnée)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "point": {"type": "string", "description": "Point central (longitude,latitude)"},
+                    "cost_value": {"type": "number", "description": "Valeur de temps ou distance"},
+                    "cost_type": {
+                        "type": "string",
+                        "default": "time",
+                        "description": "Type de coût: time (temps) ou distance"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "bdtopo-valhalla",
+                        "description": "Graphe de navigation: bdtopo-valhalla (recommandé) ou bdtopo-pgr"
+                    },
+                    "profile": {"type": "string", "description": "Mode de transport: car, pedestrian"},
+                    "direction": {
+                        "type": "string",
+                        "default": "departure",
+                        "description": "Direction: departure (depuis le point) ou arrival (vers le point)"
+                    },
+                    "time_unit": {
+                        "type": "string",
+                        "default": "hour",
+                        "description": "Unité de temps: second, minute, hour"
+                    },
+                    "distance_unit": {
+                        "type": "string",
+                        "default": "kilometer",
+                        "description": "Unité de distance: meter, kilometer, mile"
+                    },
+                },
+                "required": ["point", "cost_value"],
             },
         ),
     ]
@@ -641,9 +724,58 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             response = await client.get(f"{API_GEO_URL}/regions/{code}")
             response.raise_for_status()
             data = response.json()
-            
+
             return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
-        
+
+        # ====================================================================
+        # IGN NAVIGATION
+        # ====================================================================
+
+        elif name == "get_route_capabilities":
+            capabilities = await ign_services.get_route_capabilities(client)
+            return [TextContent(type="text", text=json.dumps(capabilities, ensure_ascii=False, indent=2))]
+
+        elif name == "calculate_route":
+            route_data = await ign_services.calculate_route(
+                client=client,
+                start=arguments["start"],
+                end=arguments["end"],
+                resource=arguments.get("resource", "bdtopo-osrm"),
+                profile=arguments.get("profile"),
+                optimization=arguments.get("optimization", "fastest"),
+                intermediates=arguments.get("intermediates"),
+                get_steps=arguments.get("get_steps", True),
+                get_bbox=arguments.get("get_bbox", True),
+                constraints=arguments.get("constraints")
+            )
+
+            # Formater la réponse pour la rendre plus lisible
+            result = {
+                "distance": route_data.get("distance"),
+                "duration": route_data.get("duration"),
+                "geometry": route_data.get("geometry"),
+                "bbox": route_data.get("bbox"),
+                "portions": route_data.get("portions", [])
+            }
+
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "calculate_isochrone":
+            isochrone_data = await ign_services.calculate_isochrone(
+                client=client,
+                point=arguments["point"],
+                cost_value=arguments["cost_value"],
+                cost_type=arguments.get("cost_type", "time"),
+                resource=arguments.get("resource", "bdtopo-valhalla"),
+                profile=arguments.get("profile"),
+                direction=arguments.get("direction", "departure"),
+                constraints=arguments.get("constraints"),
+                distance_unit=arguments.get("distance_unit", "kilometer"),
+                time_unit=arguments.get("time_unit", "hour")
+            )
+
+            return [TextContent(type="text", text=json.dumps(isochrone_data, ensure_ascii=False, indent=2))]
+
         else:
             raise ValueError(f"Unknown tool: {name}")
 

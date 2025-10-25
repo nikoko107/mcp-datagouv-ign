@@ -9,10 +9,12 @@ Serveur MCP complet permettant à Claude d'accéder aux données publiques fran�
 - Informations sur les organisations
 - Réutilisations de données
 
-### 2. **IGN Géoplateforme** - Services cartographiques nationaux
+### 2. **IGN Géoplateforme** - Services cartographiques et navigation nationaux
 - **WMTS** : Tuiles de cartes pré-générées (rapide)
 - **WMS** : Cartes à la demande (personnalisable)
 - **WFS** : Données vectorielles (analyse)
+- **Itinéraire** : Calcul d'itinéraires optimisés
+- **Isochrone** : Zones d'accessibilité temporelle/distance
 
 ### 3. **API Adresse** - Géocodage national
 - Convertir adresses → coordonnées GPS
@@ -56,7 +58,7 @@ pip install -r requirements.txt
 
 Fermez complètement Claude Desktop et relancez-le.
 
-## 🛠️ Outils disponibles (24 au total)
+## 🛠️ Outils disponibles (27 au total)
 
 ### Data.gouv.fr (6 outils)
 - `search_datasets` - Rechercher des jeux de données
@@ -66,7 +68,7 @@ Fermez complètement Claude Desktop et relancez-le.
 - `search_reuses` - Rechercher des réutilisations
 - `get_dataset_resources` - Lister les fichiers d'un dataset
 
-### IGN Géoplateforme (9 outils)
+### IGN Géoplateforme - Cartographie (9 outils)
 - `list_wmts_layers` - Lister les couches WMTS
 - `search_wmts_layers` - Rechercher des couches WMTS
 - `get_wmts_tile_url` - URL de tuile WMTS
@@ -76,6 +78,11 @@ Fermez complètement Claude Desktop et relancez-le.
 - `list_wfs_features` - Lister les features WFS
 - `search_wfs_features` - Rechercher des features WFS
 - `get_wfs_features` - Récupérer des données vectorielles
+
+### IGN Géoplateforme - Navigation (3 outils)
+- `get_route_capabilities` - Récupérer les capacités (ressources, profils)
+- `calculate_route` - Calculer un itinéraire entre deux points
+- `calculate_isochrone` - Calculer une isochrone/isodistance
 
 ### API Adresse (3 outils)
 - `geocode_address` - Adresse → GPS
@@ -107,14 +114,26 @@ Fermez complètement Claude Desktop et relancez-le.
 "Récupère les limites administratives de la Bretagne en GeoJSON"
 ```
 
+### Calcul d'itinéraire
+```
+"Calcule l'itinéraire le plus rapide en voiture entre Paris et Lyon"
+```
+
+### Isochrone
+```
+"Montre-moi les zones accessibles en 30 minutes en voiture depuis le centre de Marseille"
+```
+
 ## 📁 Structure des fichiers
 
 ```
 mcp-datagouv-ign/
 ├── french_opendata_complete_mcp.py    # Serveur principal
-├── ign_geo_services.py                # Module IGN
+├── ign_geo_services.py                # Module IGN (carto + navigation)
+├── test_navigation.py                 # Tests des fonctions navigation
 ├── requirements.txt                   # Dépendances
-└── README.md                          # Cette documentation
+├── README.md                          # Documentation principale
+└── EXEMPLES_NAVIGATION.md             # Exemples détaillés navigation
 ```
 
 ## 🔧 Dépannage
@@ -136,8 +155,11 @@ mcp-datagouv-ign/
 
 - **data.gouv.fr** : https://doc.data.gouv.fr/api/
 - **IGN Géoplateforme** : https://geoservices.ign.fr/
+- **IGN Navigation** : https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire
 - **API Adresse** : https://adresse.data.gouv.fr/api-doc/adresse
 - **API Geo** : https://geo.api.gouv.fr/
+
+Pour des exemples détaillés d'utilisation des outils de navigation, consultez [EXEMPLES_NAVIGATION.md](EXEMPLES_NAVIGATION.md).
 
 ## 🎨 Couches IGN populaires
 
