@@ -1089,7 +1089,25 @@ WORKFLOW :
         ),
         Tool(
             name="list_wms_layers",
-            description="Lister toutes les couches WMS disponibles (cartes à la demande)",
+            description="""Lister toutes les couches WMS (Web Map Service) IGN - Images cartographiques générées à la demande.
+
+🎯 WMS : Images raster personnalisées (bbox/taille/projection à la demande)
+⚙️ WMS vs WMTS : Flexible mais plus lent vs Rapide mais fixe
+
+**Quand utiliser WMS** : Impression cartes, exports PDF, bbox personnalisées, superposition multicouches
+
+**OpenLayers** :
+```javascript
+import ImageWMS from 'ol/source/ImageWMS';
+new ImageLayer({source: new ImageWMS({url: 'https://data.geopf.fr/wms-r', params: {'LAYERS': 'ORTHOIMAGERY.ORTHOPHOTOS'}})});
+```
+
+**Leaflet** :
+```javascript
+L.tileLayer.wms('https://data.geopf.fr/wms-r', {layers: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2', format: 'image/png'}).addTo(map);
+```
+
+URL : https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetCapabilities""",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
@@ -1105,15 +1123,35 @@ WORKFLOW :
         ),
         Tool(
             name="get_wms_map_url",
-            description="Générer l'URL d'une carte WMS personnalisée (bbox, taille, format)",
+            description="""Générer une URL GetMap WMS pour carte personnalisée (bbox/taille/projection).
+
+📍 WMS GetMap IGN : Image statique à la demande
+🎯 Usages : Export PDF, impression, rapports, cartes statiques
+
+**Paramètres** : layers, bbox (minx,miny,maxx,maxy), width, height, format (image/png, image/jpeg), CRS (EPSG:4326, EPSG:2154)
+
+**Formats** : PNG (transparence), JPEG (orthophotos), GeoTIFF (géoréférencé)
+
+**OpenLayers GetMap** :
+```javascript
+const url = 'https://data.geopf.fr/wms-r?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ORTHOIMAGERY.ORTHOPHOTOS&BBOX=2.25,48.81,2.42,48.90&WIDTH=800&HEIGHT=600&CRS=EPSG:4326&FORMAT=image/jpeg';
+```
+
+**Exemples** :
+- Carte Paris : bbox="2.25,48.81,2.42,48.90", width=1200, height=900
+- Export A4 300dpi : width=2480, height=3508
+- Multicouches : layers="ORTHOIMAGERY.ORTHOPHOTOS,CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+
+**Intégration** : Utiliser URL dans <img>, PDF, ou requête fetch() pour téléchargement""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "layers": {"type": "string", "description": "Couches séparées par des virgules"},
-                    "bbox": {"type": "string", "description": "Bbox format: minx,miny,maxx,maxy (EPSG:4326)"},
-                    "width": {"type": "integer", "default": 800, "description": "Largeur en pixels"},
-                    "height": {"type": "integer", "default": 600, "description": "Hauteur en pixels"},
-                    "format": {"type": "string", "default": "image/png", "description": "Format d'image"},
+                    "layers": {"type": "string", "description": "Couches séparées par virgules (ex: ORTHOIMAGERY.ORTHOPHOTOS,CADASTRE)"},
+                    "bbox": {"type": "string", "description": "Bbox minx,miny,maxx,maxy en EPSG:4326 (ex: '2.25,48.81,2.42,48.90' pour Paris)"},
+                    "width": {"type": "integer", "default": 800, "description": "Largeur pixels (800=web, 2480=A4 300dpi)"},
+                    "height": {"type": "integer", "default": 600, "description": "Hauteur pixels (600=web, 3508=A4 300dpi)"},
+                    "format": {"type": "string", "default": "image/png", "description": "Format: image/png (défaut), image/jpeg (orthophotos), image/geotiff"},
+                    "crs": {"type": "string", "default": "EPSG:4326", "description": "CRS: EPSG:4326 (défaut), EPSG:2154 (Lambert93), EPSG:3857"},
                 },
                 "required": ["layers", "bbox"],
             },
@@ -1136,45 +1174,138 @@ WORKFLOW :
         ),
         Tool(
             name="get_wfs_features",
-            description="""Récupérer des données vectorielles IGN au format GeoJSON via le service WFS.
+            description="""Récupérer des données VECTORIELLES IGN au format GeoJSON via WFS (Web Feature Service).
 
-⚠️ DONNÉES RETOURNÉES : Le résultat est directement du GeoJSON (format 'geojson') utilisable par les outils de traitement spatial.
+📍 WFS IGN : Données vectorielles éditables (points, lignes, polygones)
+🎯 FORMAT : GeoJSON (utilisable directement par OpenLayers, Leaflet, outils spatiaux MCP)
+⚡ DIFFÉRENCE WFS vs WMS/WMTS : Vecteurs avec attributs vs Images raster
 
-COUCHES IGN PRINCIPALES :
-- ADMINEXPRESS-COG-CARTO.LATEST:commune : Limites communales
-- ADMINEXPRESS-COG-CARTO.LATEST:departement : Limites départementales
-- ADMINEXPRESS-COG-CARTO.LATEST:region : Limites régionales
-- ADMINEXPRESS-COG-CARTO.LATEST:epci : EPCI (intercommunalités)
-- BDTOPO_V3:batiment : Bâtiments
-- BDTOPO_V3:troncon_de_route : Routes
-- BDTOPO_V3:surface_hydrographique : Plans d'eau
+**QU'EST-CE QUE WFS ?**
+WFS retourne des **géométries vectorielles** avec leurs **attributs métier** (nom, code INSEE, surface, etc.)
+
+**WFS vs WMS/WMTS** :
+- **WFS** : Vecteurs GeoJSON → Éditable, sélectionnable, analysable, attributs accessibles
+- **WMS/WMTS** : Images raster → Affichage uniquement, pas d'interaction objet
+
+**Quand utiliser WFS** :
+- Analyse spatiale (buffer, clip, intersect)
+- Sélection interactive d'objets
+- Affichage avec style personnalisé
+- Export de données attributaires (CSV, Excel)
+- Édition de géométries
+
+**COUCHES IGN PRINCIPALES** :
+- ADMINEXPRESS-COG-CARTO.LATEST:commune : Limites communales (36000)
+- ADMINEXPRESS-COG-CARTO.LATEST:departement : Limites départementales (101)
+- ADMINEXPRESS-COG-CARTO.LATEST:region : Limites régionales (18)
+- ADMINEXPRESS-COG-CARTO.LATEST:epci : EPCI intercommunalités
+- BDTOPO_V3:batiment : Bâtiments (millions)
+- BDTOPO_V3:troncon_de_route : Tronçons routiers
+- BDTOPO_V3:surface_hydrographique : Plans d'eau, lacs
 - BDTOPO_V3:troncon_de_cours_d_eau : Cours d'eau
 - CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle : Parcelles cadastrales
 
-UTILISATION AVEC BBOX :
-Pour limiter à une zone géographique (recommandé pour éviter trop de données) :
-- bbox format : "minx,miny,maxx,maxy" en EPSG:4326 (lon/lat)
-- Exemple : "2.25,48.81,2.42,48.90" pour Paris centre
+**BBOX (recommandé)** : Limiter zone pour éviter millions d'objets
+- Format : "minx,miny,maxx,maxy" en EPSG:4326
+- Exemple Paris : "2.25,48.81,2.42,48.90"
 
-WORKFLOW TYPIQUE :
-1. get_wfs_features(typename="ADMINEXPRESS-COG-CARTO.LATEST:commune", bbox=zone)
-2. Le résultat est du GeoJSON utilisable directement
-3. Utiliser avec buffer_geodata, clip_geodata, etc.
+**INTÉGRATION OPENLAYERS** (vecteurs interactifs) :
+```javascript
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import GeoJSON from 'ol/format/GeoJSON';
 
-NOTES :
-- max_features limite le nombre d'entités (défaut: 100)
-- Résultat en EPSG:4326 par défaut (lon/lat en degrés)
-- Pour des calculs métriques, utiliser reproject_geodata vers EPSG:2154
+const vectorLayer = new VectorLayer({
+  source: new VectorSource({
+    url: 'https://data.geopf.fr/wfs?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAMES=ADMINEXPRESS-COG-CARTO.LATEST:commune&OUTPUTFORMAT=application/json&BBOX=2.25,48.81,2.42,48.90,EPSG:4326',
+    format: new GeoJSON()
+  }),
+  style: // Style personnalisé
+});
+```
 
-EXEMPLE 1 - Communes d'un département :
-typename="ADMINEXPRESS-COG-CARTO.LATEST:commune"
-bbox="4.0,45.0,6.0,47.0" (région Rhône-Alpes)
-max_features=500
+**INTÉGRATION LEAFLET** :
+```javascript
+fetch('https://data.geopf.fr/wfs?SERVICE=WFS&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:batiment&BBOX=2.33,48.85,2.37,48.87&OUTPUTFORMAT=application/json')
+  .then(r => r.json())
+  .then(geojson => {
+    L.geoJSON(geojson, {
+      style: {color: 'blue', weight: 2},
+      onEachFeature: (feature, layer) => {
+        layer.bindPopup(`Bâtiment: ${feature.properties.nom}`);
+      }
+    }).addTo(map);
+  });
+```
 
-EXEMPLE 2 - Bâtiments de Lyon centre :
-typename="BDTOPO_V3:batiment"
-bbox="4.82,45.75,4.85,45.77"
-max_features=1000""",
+**INTÉGRATION MAPBOX GL JS** :
+```javascript
+map.addSource('communes', {
+  type: 'geojson',
+  data: 'https://data.geopf.fr/wfs?SERVICE=WFS&REQUEST=GetFeature&TYPENAMES=ADMINEXPRESS-COG-CARTO.LATEST:commune&BBOX=2.0,48.0,3.0,49.0&OUTPUTFORMAT=application/json'
+});
+
+map.addLayer({
+  id: 'communes-fill',
+  type: 'fill',
+  source: 'communes',
+  paint: {'fill-color': '#088', 'fill-opacity': 0.4}
+});
+```
+
+**INTÉGRATION AVEC OUTILS MCP SPATIAUX** :
+```
+1. Récupérer WFS :
+   get_wfs_features(typename="ADMINEXPRESS-COG-CARTO.LATEST:commune", bbox="2.25,48.81,2.42,48.90")
+   → GeoJSON des communes de Paris
+
+2. Reprojeter pour calculs métriques :
+   reproject_geodata(data=geojson, target_crs="EPSG:2154")
+   → Lambert 93 pour buffers en mètres
+
+3. Buffer 500m autour :
+   buffer_geodata(data=geojson_2154, distance=500)
+   → Zone 500m autour communes
+
+4. Intersect avec autre couche :
+   intersect_geodata(data1=communes_buffer, data2=parcelles)
+   → Parcelles dans zone 500m
+```
+
+**WORKFLOW TYPIQUE** :
+1. **WFS** → Récupérer géométries + attributs
+2. **Reproject** → EPSG:2154 pour calculs métriques
+3. **Spatial ops** → Buffer, clip, intersect
+4. **Display** → OpenLayers/Leaflet avec style
+5. **Export** → GeoJSON, Shapefile, CSV attributs
+
+**EXEMPLES** :
+1. Communes Île-de-France : typename="ADMINEXPRESS-COG-CARTO.LATEST:commune", bbox="1.5,48.0,3.5,49.5", max_features=1300
+2. Bâtiments Lyon : typename="BDTOPO_V3:batiment", bbox="4.82,45.75,4.85,45.77", max_features=5000
+3. Routes nationales : typename="BDTOPO_V3:troncon_de_route", bbox="...", max_features=1000
+4. Parcelles cadastre : typename="CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", bbox="2.33,48.85,2.35,48.86", max_features=500
+
+**ATTRIBUTS RETOURNÉS** (exemples) :
+- Communes : nom, code_insee, population, superficie
+- Bâtiments : nature (église, école, mairie), hauteur, nombre_etages
+- Routes : importance, largeur, sens_circulation, nom_voie
+- Parcelles : numero, section, contenance, commune
+
+**PERFORMANCES** :
+- Sans bbox : TRÈS LENT (millions d'objets)
+- Avec bbox petit (ville) : Rapide (<1s)
+- max_features=100 : Limite sécurité
+- max_features=5000 : Pour zones denses (bâtiments)
+
+**CAS D'USAGE** :
+- 🗺️ Cartes interactives avec sélection objets
+- 📊 Analyses spatiales (accessibilité, zones influence)
+- 📋 Export données attributaires (statistiques)
+- 🎨 Cartographie thématique (chloroplèthe, symboles)
+- 🔍 Recherche géographique (parcelles, bâtiments)
+- 🏗️ SIG métier (urbanisme, cadastre, réseaux)
+
+**DOCUMENTATION** : https://data.geopf.fr/wfs?SERVICE=WFS&REQUEST=GetCapabilities""",
             inputSchema={
                 "type": "object",
                 "properties": {
