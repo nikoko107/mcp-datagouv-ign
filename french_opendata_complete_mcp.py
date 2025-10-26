@@ -733,13 +733,61 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_wfs_features",
-            description="Récupérer des données vectorielles WFS (GeoJSON)",
+            description="""Récupérer des données vectorielles IGN au format GeoJSON via le service WFS.
+
+⚠️ DONNÉES RETOURNÉES : Le résultat est directement du GeoJSON (format 'geojson') utilisable par les outils de traitement spatial.
+
+COUCHES IGN PRINCIPALES :
+- ADMINEXPRESS-COG-CARTO.LATEST:commune : Limites communales
+- ADMINEXPRESS-COG-CARTO.LATEST:departement : Limites départementales
+- ADMINEXPRESS-COG-CARTO.LATEST:region : Limites régionales
+- ADMINEXPRESS-COG-CARTO.LATEST:epci : EPCI (intercommunalités)
+- BDTOPO_V3:batiment : Bâtiments
+- BDTOPO_V3:troncon_de_route : Routes
+- BDTOPO_V3:surface_hydrographique : Plans d'eau
+- BDTOPO_V3:troncon_de_cours_d_eau : Cours d'eau
+- CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle : Parcelles cadastrales
+
+UTILISATION AVEC BBOX :
+Pour limiter à une zone géographique (recommandé pour éviter trop de données) :
+- bbox format : "minx,miny,maxx,maxy" en EPSG:4326 (lon/lat)
+- Exemple : "2.25,48.81,2.42,48.90" pour Paris centre
+
+WORKFLOW TYPIQUE :
+1. get_wfs_features(typename="ADMINEXPRESS-COG-CARTO.LATEST:commune", bbox=zone)
+2. Le résultat est du GeoJSON utilisable directement
+3. Utiliser avec buffer_geodata, clip_geodata, etc.
+
+NOTES :
+- max_features limite le nombre d'entités (défaut: 100)
+- Résultat en EPSG:4326 par défaut (lon/lat en degrés)
+- Pour des calculs métriques, utiliser reproject_geodata vers EPSG:2154
+
+EXEMPLE 1 - Communes d'un département :
+typename="ADMINEXPRESS-COG-CARTO.LATEST:commune"
+bbox="4.0,45.0,6.0,47.0" (région Rhône-Alpes)
+max_features=500
+
+EXEMPLE 2 - Bâtiments de Lyon centre :
+typename="BDTOPO_V3:batiment"
+bbox="4.82,45.75,4.85,45.77"
+max_features=1000""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "typename": {"type": "string", "description": "Type de feature"},
-                    "bbox": {"type": "string", "description": "Bbox optionnel"},
-                    "max_features": {"type": "integer", "default": 100},
+                    "typename": {
+                        "type": "string",
+                        "description": "Nom complet de la couche WFS. Format: 'DATASET:couche'. Ex: 'ADMINEXPRESS-COG-CARTO.LATEST:commune'. Utiliser search_wfs_features pour trouver les noms."
+                    },
+                    "bbox": {
+                        "type": "string",
+                        "description": "Zone géographique (optionnel mais recommandé). Format: 'minx,miny,maxx,maxy' en EPSG:4326. Ex: '2.25,48.81,2.42,48.90' pour Paris."
+                    },
+                    "max_features": {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Nombre maximum d'entités à retourner (défaut: 100). Augmenter si besoin mais attention à la taille des données."
+                    },
                 },
                 "required": ["typename"],
             },
@@ -1024,53 +1072,179 @@ async def list_tools() -> list[Tool]:
         # TRAITEMENTS SPATIAUX (8 outils)
         Tool(
             name="reproject_geodata",
-            description="Reprojeter des données géographiques vers un autre système de coordonnées (GeoJSON, KML, GeoPackage, Shapefile). Les formats binaires doivent être encodés en base64.",
+            description="""Reprojeter des données géographiques d'un système de coordonnées vers un autre.
+
+FORMATS SUPPORTÉS :
+- geojson/json : Texte JSON (le plus courant, utilisé par get_wfs_features)
+- kml : Texte XML Google Earth
+- gpkg : Binaire base64 encodé (GeoPackage)
+- shapefile : Binaire base64 encodé (zip contenant .shp, .shx, .dbf, .prj)
+
+CRS COURANTS :
+- EPSG:4326 : WGS84 (GPS, longitude/latitude en degrés, utilisé par défaut)
+- EPSG:3857 : Web Mercator (Google Maps, en mètres)
+- EPSG:2154 : Lambert 93 (France métropolitaine, en mètres)
+- EPSG:32631 : UTM Zone 31N (Ouest France, en mètres)
+
+USAGE TYPIQUE :
+Pour calculer des distances ou buffers en mètres, reprojeter d'abord en EPSG:2154 ou EPSG:3857.
+Les données WFS IGN sont souvent en EPSG:4326 par défaut.
+
+EXEMPLE : Reprojeter des communes de EPSG:4326 vers Lambert 93 (EPSG:2154)""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données géographiques. Pour les formats binaires (gpkg, shapefile), fournir du base64."},
-                    "input_format": {"type": "string", "description": "Format d'entrée: geojson, kml, gpkg, shapefile"},
-                    "target_crs": {"type": "string", "description": "CRS cible (ex: EPSG:3857)"},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
-                    "output_format": {"type": "string", "description": "Format de sortie (par défaut geojson)"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données géographiques (string GeoJSON ou base64 pour binaires). Exemple : récupérées via get_wfs_features"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format d'entrée : 'geojson' (si données de get_wfs_features), 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "target_crs": {
+                        "type": "string",
+                        "description": "CRS cible au format EPSG:XXXX. Ex: 'EPSG:2154' pour Lambert 93 France, 'EPSG:3857' pour Web Mercator"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent des données (optionnel). Ex: 'EPSG:4326'"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format de sortie : 'geojson' (par défaut, recommandé), 'kml', 'gpkg', 'shapefile'"
+                    },
                 },
                 "required": ["data", "input_format", "target_crs"],
             },
         ),
         Tool(
             name="buffer_geodata",
-            description="Calculer un tampon (buffer) autour des géométries. Fournir un CRS métrique pour des distances en mètres.",
+            description="""Calculer un tampon (zone tampon) autour des géométries à une distance donnée.
+
+⚠️ IMPORTANT : Pour des distances en MÈTRES, les données DOIVENT être en CRS métrique (EPSG:2154, EPSG:3857, etc.), PAS en EPSG:4326 (degrés).
+
+WORKFLOW RECOMMANDÉ :
+1. Récupérer les données (ex: get_wfs_features)
+2. Si les données sont en EPSG:4326, utiliser reproject_geodata vers EPSG:2154
+3. Appliquer buffer_geodata avec la distance en mètres
+
+CRS MÉTRIQUES POUR LA FRANCE :
+- EPSG:2154 : Lambert 93 (recommandé pour France métropolitaine)
+- EPSG:3857 : Web Mercator (approximation mondiale)
+- EPSG:32631 : UTM Zone 31N (Ouest France)
+
+EXEMPLES :
+- Buffer de 500m autour de bâtiments : distance=500, buffer_crs='EPSG:2154'
+- Buffer de 1km autour de communes : distance=1000, buffer_crs='EPSG:2154'
+- Buffer de 100m autour de routes : distance=100, buffer_crs='EPSG:2154'
+
+NOTES :
+- cap_style='round' (par défaut) : extrémités arrondies
+- join_style='round' (par défaut) : angles arrondis
+- resolution=16 (par défaut) : qualité du cercle (plus = plus lisse)""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données géographiques (texte ou base64 selon format)."},
-                    "input_format": {"type": "string", "description": "Format d'entrée: geojson, kml, gpkg, shapefile"},
-                    "distance": {"type": "number", "description": "Distance du buffer (en unités du CRS utilisé)."},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
-                    "buffer_crs": {"type": "string", "description": "CRS pour le calcul du buffer (ex: EPSG:2154)"},
-                    "output_crs": {"type": "string", "description": "CRS du résultat"},
-                    "output_format": {"type": "string", "description": "Format de sortie"},
-                    "cap_style": {"type": "string", "enum": ["round", "flat", "square"], "description": "Style des extrémités"},
-                    "join_style": {"type": "string", "enum": ["round", "mitre", "bevel"], "description": "Style des joints"},
-                    "mitre_limit": {"type": "number", "description": "Limite pour les angles rentrants (mitre)"},
-                    "single_sided": {"type": "boolean", "description": "Buffer unilatéral"},
-                    "resolution": {"type": "integer", "description": "Résolution du buffer (par défaut 16)"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données géographiques (GeoJSON string ou base64). Doivent être en CRS métrique pour distance en mètres"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "distance": {
+                        "type": "number",
+                        "description": "Distance du buffer en UNITÉS DU CRS. Si buffer_crs=EPSG:2154, alors en MÈTRES. Ex: 500 pour 500m"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent (optionnel). Ex: 'EPSG:4326'"
+                    },
+                    "buffer_crs": {
+                        "type": "string",
+                        "description": "CRS pour le calcul (OBLIGATOIRE si métrique). Ex: 'EPSG:2154' pour mètres en France"
+                    },
+                    "output_crs": {
+                        "type": "string",
+                        "description": "CRS du résultat (optionnel, par défaut = buffer_crs). Ex: 'EPSG:4326' pour retour en GPS"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format de sortie : 'geojson' (par défaut), 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "cap_style": {
+                        "type": "string",
+                        "enum": ["round", "flat", "square"],
+                        "description": "Style extrémités : 'round' (arrondi, défaut), 'flat' (plat), 'square' (carré)"
+                    },
+                    "join_style": {
+                        "type": "string",
+                        "enum": ["round", "mitre", "bevel"],
+                        "description": "Style angles : 'round' (arrondi, défaut), 'mitre' (pointu), 'bevel' (biseauté)"
+                    },
+                    "resolution": {
+                        "type": "integer",
+                        "description": "Nombre de segments pour arrondir (défaut: 16). Plus = plus lisse mais plus lourd"
+                    },
                 },
                 "required": ["data", "input_format", "distance"],
             },
         ),
         Tool(
             name="intersect_geodata",
-            description="Calculer l'intersection de deux jeux de données géographiques.",
+            description="""Calculer l'intersection géométrique de deux jeux de données (partie commune).
+
+USAGE TYPIQUE :
+- Trouver les bâtiments DANS une zone inondable
+- Parcelles cadastrales DANS les limites communales
+- Routes QUI TRAVERSENT des zones protégées
+
+IMPORTANT : Les deux jeux de données seront automatiquement reprojetés dans le même CRS.
+
+WORKFLOW :
+1. Récupérer data_a (ex: get_wfs_features pour bâtiments)
+2. Récupérer data_b (ex: get_wfs_features pour zone)
+3. Appeler intersect_geodata pour obtenir data_a ∩ data_b
+
+RÉSULTAT :
+- Conserve les géométries ET les attributs des deux sources
+- Ne retourne QUE les entités qui se chevauchent
+- Géométries découpées aux limites de l'intersection
+
+EXEMPLE :
+Trouver les parcelles dans une commune :
+- data_a = parcelles cadastrales (WFS CADASTRALPARCELS.PARCELLAIRE_EXPRESS)
+- data_b = limite de commune (WFS ADMINEXPRESS-COG-CARTO.LATEST:commune)
+→ Résultat = parcelles découpées aux limites communales""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data_a": {"type": "string", "description": "Premier jeu de données."},
-                    "input_format_a": {"type": "string", "description": "Format du premier jeu (geojson, kml, gpkg, shapefile)"},
-                    "data_b": {"type": "string", "description": "Second jeu de données."},
-                    "input_format_b": {"type": "string", "description": "Format du second jeu"},
-                    "source_crs_a": {"type": "string", "description": "CRS source du premier jeu"},
-                    "source_crs_b": {"type": "string", "description": "CRS source du second jeu"},
+                    "data_a": {
+                        "type": "string",
+                        "description": "Premier jeu de données (GeoJSON string ou base64). Ex: bâtiments, parcelles"
+                    },
+                    "input_format_a": {
+                        "type": "string",
+                        "description": "Format de data_a : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "data_b": {
+                        "type": "string",
+                        "description": "Second jeu de données (zone de découpe/filtre). Ex: commune, zone inondable"
+                    },
+                    "input_format_b": {
+                        "type": "string",
+                        "description": "Format de data_b : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "source_crs_a": {
+                        "type": "string",
+                        "description": "CRS de data_a si absent (optionnel). Ex: 'EPSG:4326'"
+                    },
+                    "source_crs_b": {
+                        "type": "string",
+                        "description": "CRS de data_b si absent (optionnel). Ex: 'EPSG:4326'"
+                    },
                     "target_crs": {"type": "string", "description": "CRS commun pour l'opération"},
                     "output_format": {"type": "string", "description": "Format de sortie"},
                 },
@@ -1079,78 +1253,269 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="clip_geodata",
-            description="Découper un jeu de données avec une zone de découpe (clip).",
+            description="""Découper (clip) un jeu de données avec une géométrie de découpe. Similaire à un "cookie cutter" - garde uniquement ce qui est À L'INTÉRIEUR de la zone de découpe.
+
+DIFFÉRENCE avec intersect_geodata :
+- clip_geodata : COUPE les géométries ET ne conserve QUE la partie dans la zone
+- intersect_geodata : Conserve les attributs des DEUX sources
+
+USAGE TYPIQUE :
+- Découper des bâtiments avec les limites d'une commune
+- Extraire les routes dans un département
+- Isoler les parcelles dans une zone d'étude
+
+EXEMPLE :
+Bâtiments de Paris :
+- data = tous les bâtiments d'Île-de-France (WFS BDTOPO_V3:batiment)
+- clip_data = limite de Paris (WFS commune, INSEE=75056)
+→ Résultat = UNIQUEMENT bâtiments dans Paris, découpés aux limites""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données à découper."},
-                    "input_format": {"type": "string", "description": "Format de ces données"},
-                    "clip_data": {"type": "string", "description": "Géométrie de découpe."},
-                    "clip_format": {"type": "string", "description": "Format de la géométrie de découpe"},
-                    "source_crs": {"type": "string", "description": "CRS des données à découper"},
-                    "clip_source_crs": {"type": "string", "description": "CRS de la géométrie de découpe"},
-                    "target_crs": {"type": "string", "description": "CRS commun pour l'opération"},
-                    "output_format": {"type": "string", "description": "Format de sortie"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données à découper (GeoJSON string ou base64). Ex: bâtiments, routes"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "clip_data": {
+                        "type": "string",
+                        "description": "Zone de découpe (GeoJSON string ou base64). Ex: limite commune"
+                    },
+                    "clip_format": {
+                        "type": "string",
+                        "description": "Format de la zone : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS des données si absent (optionnel)"
+                    },
+                    "clip_source_crs": {
+                        "type": "string",
+                        "description": "CRS de la zone de découpe si absent (optionnel)"
+                    },
+                    "target_crs": {
+                        "type": "string",
+                        "description": "CRS commun pour l'opération (optionnel)"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format de sortie : 'geojson' (par défaut), 'kml', 'gpkg', 'shapefile'"
+                    },
                 },
                 "required": ["data", "input_format", "clip_data", "clip_format"],
             },
         ),
         Tool(
             name="convert_geodata_format",
-            description="Convertir des données géographiques entre formats (GeoJSON, KML, GeoPackage, Shapefile).",
+            description="""Convertir des données géographiques d'un format vers un autre.
+
+FORMATS SUPPORTÉS :
+- geojson/json : Texte JSON (léger, web-friendly, par défaut)
+- kml : Texte XML (Google Earth, Google Maps)
+- gpkg : Binaire GeoPackage (standard OGC, fichier unique, retourné en base64)
+- shapefile : Binaire ESRI (multi-fichiers zippés, retourné en base64)
+
+USAGE TYPIQUE :
+- Préparer données WFS (GeoJSON) pour QGIS/ArcGIS → shapefile ou gpkg
+- Convertir Shapefile ancien → GeoJSON moderne
+- Export pour Google Earth → kml
+
+NOTES :
+- Les formats binaires (gpkg, shapefile) sont encodés en base64
+- Les attributs et géométries sont préservés
+- Le CRS est conservé (ou peut être spécifié)
+
+EXEMPLE :
+Convertir communes GeoJSON en Shapefile pour QGIS :
+- data = résultat de get_wfs_features (GeoJSON)
+- input_format = "geojson"
+- output_format = "shapefile"
+→ Résultat = ZIP base64 contenant .shp, .shx, .dbf, .prj""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données sources"},
-                    "input_format": {"type": "string", "description": "Format d'entrée"},
-                    "output_format": {"type": "string", "description": "Format de sortie désiré"},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données sources (GeoJSON string ou base64 si binaire)"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format d'entrée : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format désiré : 'geojson' (texte), 'kml' (texte), 'gpkg' (base64), 'shapefile' (base64)"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent des données (optionnel). Ex: 'EPSG:4326'"
+                    },
                 },
                 "required": ["data", "input_format", "output_format"],
             },
         ),
         Tool(
             name="get_geodata_bbox",
-            description="Calculer la bounding box (enveloppe minimale) d'un jeu de données.",
+            description="""Calculer la bounding box (rectangle englobant minimum) d'un jeu de données.
+
+RÉSULTAT : Un objet avec minx, miny, maxx, maxy (coordonnées du rectangle).
+
+USAGE TYPIQUE :
+- Obtenir l'étendue d'un jeu de données pour paramètres get_wms_map_url
+- Calculer la zone couverte par des entités
+- Vérifier si données dans zone attendue
+
+EXEMPLE :
+BBox d'une commune en EPSG:4326 (lon/lat) :
+- data = commune de Lyon (WFS)
+- input_format = "geojson"
+- target_crs = "EPSG:4326"
+→ Résultat = {"minx": 4.79, "miny": 45.71, "maxx": 4.88, "maxy": 45.81}
+
+Utilisation avec WMS :
+bbox = get_geodata_bbox(communes)
+map = get_wms_map_url(bbox=f"{bbox.minx},{bbox.miny},{bbox.maxx},{bbox.maxy}")""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données géographiques"},
-                    "input_format": {"type": "string", "description": "Format d'entrée"},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
-                    "target_crs": {"type": "string", "description": "CRS dans lequel retourner la bbox"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données géographiques (GeoJSON string ou base64)"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent (optionnel)"
+                    },
+                    "target_crs": {
+                        "type": "string",
+                        "description": "CRS pour la bbox (optionnel). Ex: 'EPSG:4326' pour lon/lat"
+                    },
                 },
                 "required": ["data", "input_format"],
             },
         ),
         Tool(
             name="dissolve_geodata",
-            description="Regrouper (dissolve) des géométries selon un attribut ou globalement.",
+            description="""Fusionner (dissolve) des géométries en les regroupant par attribut ou globalement.
+
+USAGE TYPIQUE :
+- Fusionner toutes les communes d'un département → limite départementale
+- Fusionner parcelles par propriétaire → îlots de propriété
+- Fusionner zones par type → zones homogènes
+
+AVEC ATTRIBUT (by) :
+Les entités ayant la MÊME VALEUR d'attribut sont fusionnées ensemble.
+Ex: dissolve par "departement" → une géométrie par département
+
+SANS ATTRIBUT (by=None) :
+TOUTES les géométries sont fusionnées en UNE seule.
+Ex: toutes les communes de France → frontière de la France
+
+AGRÉGATIONS :
+Spécifier comment combiner les autres attributs (sum, mean, first, etc.)
+Ex: {"population": "sum"} → somme des populations
+
+EXEMPLE 1 - Par département :
+- data = communes d'une région (WFS)
+- by = "code_departement"
+- aggregations = {"population": "sum"}
+→ Résultat = géométries départementales avec population totale
+
+EXEMPLE 2 - Fusion globale :
+- data = toutes les communes d'un EPCI
+- by = None (ou omis)
+→ Résultat = UNE géométrie = limite de l'EPCI""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données géographiques"},
-                    "input_format": {"type": "string", "description": "Format d'entrée"},
-                    "by": {"type": "string", "description": "Nom de l'attribut pour regrouper (optionnel)"},
-                    "aggregations": {"type": "object", "description": "Agrégations supplémentaires pour les attributs (ex: {\"population\": \"sum\"})"},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
-                    "target_crs": {"type": "string", "description": "CRS du résultat"},
-                    "output_format": {"type": "string", "description": "Format de sortie"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données géographiques (GeoJSON string ou base64)"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "by": {
+                        "type": "string",
+                        "description": "Nom de l'attribut pour regrouper (optionnel). Si omis = fusion globale. Ex: 'departement', 'region', 'type'"
+                    },
+                    "aggregations": {
+                        "type": "object",
+                        "description": "Agrégations pour autres attributs (optionnel). Ex: {\"population\": \"sum\", \"superficie\": \"sum\"}"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent (optionnel)"
+                    },
+                    "target_crs": {
+                        "type": "string",
+                        "description": "CRS du résultat (optionnel)"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format de sortie : 'geojson' (par défaut), 'kml', 'gpkg', 'shapefile'"
+                    },
                 },
                 "required": ["data", "input_format"],
             },
         ),
         Tool(
             name="explode_geodata",
-            description="Désassembler les géométries multi-parties en entités simples.",
+            description="""Séparer les géométries multi-parties (Multi*) en géométries simples individuelles.
+
+TRANSFORMATIONS :
+- MultiPoint → plusieurs Point
+- MultiLineString → plusieurs LineString
+- MultiPolygon → plusieurs Polygon
+- GeometryCollection → géométries séparées
+
+USAGE TYPIQUE :
+- Séparer les îles d'un archipel (MultiPolygon → Polygons)
+- Isoler chaque segment d'un réseau (MultiLineString → LineStrings)
+- Analyser individuellement chaque partie d'une géométrie complexe
+
+RÉSULTAT :
+Chaque partie devient une entité distincte.
+Les attributs sont DUPLIQUÉS pour chaque partie.
+
+EXEMPLE :
+Commune avec plusieurs polygones (territoire + îles) :
+- data = commune en MultiPolygon
+- input_format = "geojson"
+→ Résultat = N entités, une par polygone (territoire principal, île 1, île 2, etc.)
+
+Utile avant d'analyser la superficie de chaque île séparément.""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Données géographiques"},
-                    "input_format": {"type": "string", "description": "Format d'entrée"},
-                    "source_crs": {"type": "string", "description": "CRS source si absent des données"},
-                    "keep_index": {"type": "boolean", "description": "Conserver l'index d'origine"},
-                    "output_format": {"type": "string", "description": "Format de sortie"},
+                    "data": {
+                        "type": "string",
+                        "description": "Données géographiques avec Multi* (GeoJSON string ou base64)"
+                    },
+                    "input_format": {
+                        "type": "string",
+                        "description": "Format : 'geojson', 'kml', 'gpkg', 'shapefile'"
+                    },
+                    "source_crs": {
+                        "type": "string",
+                        "description": "CRS source si absent (optionnel)"
+                    },
+                    "keep_index": {
+                        "type": "boolean",
+                        "description": "Conserver index d'origine (défaut: false)"
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "description": "Format de sortie : 'geojson' (par défaut), 'kml', 'gpkg', 'shapefile'"
+                    },
                 },
                 "required": ["data", "input_format"],
             },
