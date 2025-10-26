@@ -656,7 +656,172 @@ async def list_tools() -> list[Tool]:
         # IGN GÉOPLATEFORME (9 outils)
         Tool(
             name="list_wmts_layers",
-            description="Lister toutes les couches cartographiques WMTS disponibles (tuiles pré-générées)",
+            description="""Lister toutes les couches cartographiques WMTS (Web Map Tile Service) disponibles sur la Géoplateforme IGN.
+
+📍 SERVICE : WMTS IGN Géoplateforme (tuiles pré-générées)
+🎯 FORMAT : Tuiles raster 256x256 pixels pré-calculées
+⚡ PERFORMANCE : Très rapide (pas de génération à la demande)
+
+QU'EST-CE QUE WMTS ?
+
+WMTS (Web Map Tile Service) est un standard OGC pour servir des **tuiles raster pré-générées** organisées en pyramide de zoom.
+
+**Avantages** :
+- ⚡ **Performance maximale** : Tuiles déjà calculées, servies instantanément
+- 📦 **Cache efficace** : Les tuiles peuvent être mises en cache par le navigateur
+- 🌍 **Standard web** : Compatible avec tous les frameworks cartographiques
+- 📱 **Mobile-friendly** : Charge seulement les tuiles visibles
+
+**Quand utiliser WMTS** :
+- Fond de carte (orthophotos, plan IGN, carte topographique)
+- Couches de référence consultées fréquemment
+- Applications grand public nécessitant réactivité
+- Cartes interactives avec navigation fluide
+
+**Différence WMS vs WMTS** :
+- **WMTS** : Tuiles pré-générées → Rapide mais tailles/projections fixes
+- **WMS** : Images générées à la demande → Flexible mais plus lent
+
+COUCHES PRINCIPALES DISPONIBLES :
+
+- **GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2** : Plan IGN V2 (carte topographique moderne)
+- **ORTHOIMAGERY.ORTHOPHOTOS** : Photos aériennes récentes (résolution 20cm à 5m)
+- **GEOGRAPHICALGRIDSYSTEMS.MAPS** : Cartes IGN historiques et actuelles
+- **CADASTRALPARCELS.PARCELLAIRE_EXPRESS** : Parcelles cadastrales
+- **ADMINEXPRESS-COG-CARTO** : Limites administratives (communes, départements)
+- **TRANSPORTNETWORKS.ROADS** : Réseau routier
+- **LANDUSE.AGRICULTURE** : Occupation du sol agricole
+- **ELEVATION.SLOPES** : Pentes du terrain
+
+INTÉGRATION AVEC BIBLIOTHÈQUES CARTOGRAPHIQUES WEB :
+
+🗺️ **OpenLayers** (JavaScript) :
+```javascript
+import TileLayer from 'ol/layer/Tile';
+import WMTS from 'ol/source/WMTS';
+import WMTSTileGrid from 'ol/tilegrid/WMTS';
+
+const wmtsLayer = new TileLayer({
+  source: new WMTS({
+    url: 'https://data.geopf.fr/wmts',
+    layer: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
+    matrixSet: 'PM', // Pseudo-Mercator (Web Mercator)
+    format: 'image/png',
+    style: 'normal',
+    tileGrid: new WMTSTileGrid({
+      origin: [-20037508, 20037508],
+      resolutions: [...], // Résolutions par niveau de zoom
+      matrixIds: ['0', '1', '2', ..., '20']
+    })
+  })
+});
+```
+
+🍃 **Leaflet** (JavaScript) :
+```javascript
+// Via plugin leaflet-wmts
+L.tileLayer.wmts('https://data.geopf.fr/wmts', {
+  layer: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
+  style: 'normal',
+  tilematrixSet: 'PM',
+  format: 'image/png',
+  attribution: '© IGN'
+}).addTo(map);
+
+// Ou utiliser comme TileLayer standard
+L.tileLayer('https://data.geopf.fr/wmts?' +
+  'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&' +
+  'LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&' +
+  'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png'
+).addTo(map);
+```
+
+🗺️ **Mapbox GL JS / MapLibre GL JS** :
+```javascript
+map.addSource('ign-wmts', {
+  type: 'raster',
+  tiles: ['https://data.geopf.fr/wmts?' +
+    'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&' +
+    'LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&' +
+    'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png'],
+  tileSize: 256
+});
+
+map.addLayer({
+  id: 'ign-layer',
+  type: 'raster',
+  source: 'ign-wmts'
+});
+```
+
+🎨 **Deck.gl / Kepler.gl** :
+```javascript
+import {TileLayer} from '@deck.gl/geo-layers';
+
+const wmtsTileLayer = new TileLayer({
+  data: 'https://data.geopf.fr/wmts?...',
+  renderSubLayers: props => {
+    const {tile} = props;
+    return new BitmapLayer(props, {
+      image: tile.content,
+      bounds: tile.bbox
+    });
+  }
+});
+```
+
+PYRAMIDE DE ZOOM :
+
+- **Niveau 0-5** : Vue mondiale à nationale (faible détail)
+- **Niveau 6-10** : Vue régionale (villes, départements)
+- **Niveau 11-15** : Vue locale (quartiers, rues principales)
+- **Niveau 16-18** : Vue détaillée (bâtiments, rues)
+- **Niveau 19-20** : Vue très détaillée (orthophotos haute résolution)
+
+SYSTÈMES DE COORDONNÉES (TileMatrixSet) :
+
+- **PM (Pseudo-Mercator)** : EPSG:3857 - Standard web (Google, OSM, Leaflet par défaut)
+- **WGS84** : EPSG:4326 - Coordonnées géographiques (lat/lon)
+- **LAMB93** : EPSG:2154 - Lambert 93 (France métropolitaine officiel)
+
+FORMATS D'IMAGE :
+
+- **image/png** : Transparence, qualité parfaite, taille supérieure
+- **image/jpeg** : Pas de transparence, taille optimale pour orthophotos
+- **image/webp** : Format moderne, compression optimale (support navigateurs récents)
+
+USAGE :
+
+Cet outil retourne la liste complète des couches WMTS avec :
+- Nom de la couche (LAYER)
+- Titre descriptif
+- Résumé / description
+- TileMatrixSets disponibles
+- Formats supportés
+- Niveaux de zoom disponibles
+- Attribution / source
+
+WORKFLOW RECOMMANDÉ :
+
+1. **Découverte** : Appeler list_wmts_layers pour voir toutes les couches
+2. **Sélection** : Choisir la couche appropriée (orthophoto, plan, cadastre, etc.)
+3. **Configuration** : Utiliser get_wmts_tile_url pour générer les URLs
+4. **Intégration** : Intégrer dans OpenLayers, Leaflet, Mapbox GL, etc.
+5. **Optimisation** : Configurer cache navigateur et niveaux de zoom
+
+CAS D'USAGE :
+
+- 🗺️ **Applications cartographiques web** : Fond de carte interactif
+- 📱 **Applications mobiles** : Cartes offline avec tuiles pré-téléchargées
+- 📊 **Tableaux de bord géographiques** : Contexte cartographique pour données métier
+- 🏗️ **SIG métier** : Référentiel géographique pour applications professionnelles
+- 🎓 **Éducation** : Supports pédagogiques avec cartes IGN officielles
+- 📰 **Médias** : Illustrations cartographiques pour articles
+
+DOCUMENTATION OFFICIELLE :
+
+- Géoplateforme WMTS : https://geoservices.ign.fr/documentation/services/api-et-services-ogc/tuiles-vectorielles-tmswmts
+- GetCapabilities : https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetCapabilities""",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
@@ -672,14 +837,252 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_wmts_tile_url",
-            description="Générer l'URL d'une tuile WMTS pour intégration dans une application",
+            description="""Générer l'URL d'une tuile WMTS spécifique pour intégration directe dans OpenLayers, Leaflet, Mapbox GL, etc.
+
+📍 SERVICE : WMTS IGN Géoplateforme
+🎯 FORMAT : URL de tuile individuelle selon schéma TMS/XYZ
+⚡ USAGE : Intégration directe dans frameworks cartographiques
+
+URL GÉNÉRÉE :
+
+Format standard WMTS GetTile :
+```
+https://data.geopf.fr/wmts?
+  SERVICE=WMTS&
+  REQUEST=GetTile&
+  VERSION=1.0.0&
+  LAYER={layer}&
+  STYLE=normal&
+  TILEMATRIXSET=PM&
+  TILEMATRIX={z}&
+  TILEROW={y}&
+  TILECOL={x}&
+  FORMAT=image/png
+```
+
+PARAMÈTRES :
+
+- **layer** (obligatoire) : Nom de la couche WMTS
+  Exemples courants :
+  * GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2 (Plan IGN)
+  * ORTHOIMAGERY.ORTHOPHOTOS (Photos aériennes)
+  * CADASTRALPARCELS.PARCELLAIRE_EXPRESS (Cadastre)
+
+- **z** (obligatoire) : Niveau de zoom (0-20)
+  * 0-5 : Monde → Pays
+  * 6-10 : Régions
+  * 11-15 : Villes → Quartiers
+  * 16-18 : Rues → Bâtiments
+  * 19-20 : Détail maximum
+
+- **x** (obligatoire) : Coordonnée X de la tuile (colonne)
+  Calculée selon la formule TMS/XYZ standard
+
+- **y** (obligatoire) : Coordonnée Y de la tuile (ligne)
+  Calculée selon la formule TMS/XYZ standard
+
+CALCUL DES COORDONNÉES DE TUILE :
+
+Pour convertir lon/lat en coordonnées de tuile (x, y, z) :
+
+**JavaScript** :
+```javascript
+function lonLatToTile(lon, lat, zoom) {
+  const n = Math.pow(2, zoom);
+  const x = Math.floor((lon + 180) / 360 * n);
+  const latRad = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) +
+    1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return {x, y, z: zoom};
+}
+
+// Exemple : Paris (2.3522, 48.8566) au zoom 15
+const tile = lonLatToTile(2.3522, 48.8566, 15);
+// Résultat : {x: 16598, y: 11273, z: 15}
+```
+
+**Python** :
+```python
+import math
+
+def lon_lat_to_tile(lon, lat, zoom):
+    n = 2 ** zoom
+    x = int((lon + 180) / 360 * n)
+    lat_rad = math.radians(lat)
+    y = int((1 - math.log(math.tan(lat_rad) +
+      1 / math.cos(lat_rad)) / math.pi) / 2 * n)
+    return {'x': x, 'y': y, 'z': zoom}
+```
+
+INTÉGRATION DIRECTE :
+
+🗺️ **OpenLayers** :
+```javascript
+import TileLayer from 'ol/layer/Tile';
+import XYZ from 'ol/source/XYZ';
+
+// Utiliser l'URL générée comme template
+const layer = new TileLayer({
+  source: new XYZ({
+    url: 'https://data.geopf.fr/wmts?' +
+      'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&' +
+      'LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&' +
+      'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&' +
+      'FORMAT=image/png',
+    attributions: '© IGN',
+    maxZoom: 20
+  })
+});
+```
+
+🍃 **Leaflet** :
+```javascript
+// Template URL avec {z}, {x}, {y}
+const ignLayer = L.tileLayer(
+  'https://data.geopf.fr/wmts?' +
+  'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&' +
+  'LAYER={layer}&STYLE=normal&' +
+  'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&' +
+  'FORMAT=image/png',
+  {
+    layer: 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2',
+    maxZoom: 20,
+    attribution: '© IGN'
+  }
+);
+ignLayer.addTo(map);
+```
+
+🗺️ **Mapbox GL JS / MapLibre GL JS** :
+```javascript
+map.addSource('ign-tiles', {
+  type: 'raster',
+  tiles: [
+    'https://data.geopf.fr/wmts?' +
+    'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&' +
+    'LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&' +
+    'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&' +
+    'FORMAT=image/jpeg'
+  ],
+  tileSize: 256,
+  attribution: '© IGN',
+  maxzoom: 20
+});
+
+map.addLayer({
+  id: 'ign-ortho',
+  type: 'raster',
+  source: 'ign-tiles',
+  paint: {}
+});
+```
+
+🐍 **Folium (Python)** :
+```python
+import folium
+
+m = folium.Map(location=[48.8566, 2.3522], zoom_start=13)
+
+# Ajouter couche WMTS IGN
+tile_url = ('https://data.geopf.fr/wmts?'
+  'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&'
+  'LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&'
+  'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&'
+  'FORMAT=image/png')
+
+folium.TileLayer(
+  tiles=tile_url,
+  attr='© IGN',
+  name='Plan IGN',
+  overlay=False,
+  control=True
+).add_to(m)
+
+m.save('map.html')
+```
+
+🌐 **React Leaflet** :
+```jsx
+import { MapContainer, TileLayer } from 'react-leaflet';
+
+function MapComponent() {
+  return (
+    <MapContainer center={[48.8566, 2.3522]} zoom={13}>
+      <TileLayer
+        url="https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png"
+        attribution="© IGN"
+        maxZoom={20}
+      />
+    </MapContainer>
+  );
+}
+```
+
+PARAMÈTRES AVANCÉS :
+
+- **TILEMATRIXSET** :
+  * PM (défaut) : Pseudo-Mercator EPSG:3857 (standard web)
+  * WGS84 : EPSG:4326 (coordonnées géographiques)
+  * LAMB93 : EPSG:2154 (Lambert 93, France officiel)
+
+- **FORMAT** :
+  * image/png : Qualité parfaite, transparence
+  * image/jpeg : Optimisé pour orthophotos
+  * image/webp : Format moderne (Chrome, Firefox récents)
+
+- **STYLE** : Généralement "normal" (voir GetCapabilities pour styles alternatifs)
+
+EXEMPLES D'USAGE :
+
+1. **Tuile Plan IGN au zoom 15, Paris centre** :
+   layer="GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", z=15, x=16598, y=11273
+   → URL de la tuile contenant la Tour Eiffel
+
+2. **Tuile orthophoto haute résolution** :
+   layer="ORTHOIMAGERY.ORTHOPHOTOS", z=18, x=..., y=...
+   → Photo aérienne détaillée 20cm/pixel
+
+3. **Tuile cadastre** :
+   layer="CADASTRALPARCELS.PARCELLAIRE_EXPRESS", z=16, x=..., y=...
+   → Parcelles cadastrales avec limites précises
+
+OPTIMISATIONS :
+
+- **Cache navigateur** : Les URLs WMTS sont stables, activez le cache HTTP
+- **CDN** : data.geopf.fr utilise un CDN pour distribution mondiale
+- **Parallélisme** : Les navigateurs téléchargent 6-8 tuiles en parallèle
+- **Préchargement** : Précharger tuiles adjacentes pour navigation fluide
+
+ERREURS COURANTES :
+
+- **404 Not Found** : Tuile hors limites (x/y invalides pour le zoom)
+- **400 Bad Request** : Paramètres manquants ou invalides
+- **Tuile vide** : Zone sans couverture (mer, hors France pour certaines couches)
+
+CAS D'USAGE :
+
+- 🗺️ **Carte interactive web** : Fond de carte réactif
+- 📱 **Application mobile** : Tuiles pré-téléchargées pour mode offline
+- 🖼️ **Génération d'images** : Combiner tuiles pour créer cartes statiques
+- 🎮 **Jeux géolocalisés** : Fond de carte réaliste pour jeux AR
+- 📊 **Dataviz géographique** : Contexte cartographique pour visualisations
+
+WORKFLOW :
+
+1. **Découvrir** : list_wmts_layers pour voir couches disponibles
+2. **Calculer** : Convertir lon/lat → tile (x, y, z)
+3. **Générer** : get_wmts_tile_url pour obtenir URL
+4. **Intégrer** : Utiliser template URL dans framework carto
+5. **Optimiser** : Configurer cache et niveaux de zoom""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "layer": {"type": "string", "description": "Nom de la couche"},
-                    "z": {"type": "integer", "description": "Niveau de zoom (0-20)"},
-                    "x": {"type": "integer", "description": "Coordonnée X de la tuile"},
-                    "y": {"type": "integer", "description": "Coordonnée Y de la tuile"},
+                    "layer": {"type": "string", "description": "Nom de la couche WMTS (ex: GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2, ORTHOIMAGERY.ORTHOPHOTOS)"},
+                    "z": {"type": "integer", "description": "Niveau de zoom (0-20). Zoom 15 = quartier, 18 = bâtiment"},
+                    "x": {"type": "integer", "description": "Coordonnée X de la tuile (colonne). Calculer depuis lon/lat avec formule TMS"},
+                    "y": {"type": "integer", "description": "Coordonnée Y de la tuile (ligne). Calculer depuis lon/lat avec formule TMS"},
+                    "tilematrixset": {"type": "string", "default": "PM", "description": "Système de coordonnées : PM (EPSG:3857, défaut), WGS84, LAMB93"},
+                    "format": {"type": "string", "default": "image/png", "description": "Format : image/png (défaut), image/jpeg (orthophotos), image/webp"},
                 },
                 "required": ["layer", "z", "x", "y"],
             },
