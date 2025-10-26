@@ -906,76 +906,285 @@ max_features=1000""",
         ),
         Tool(
             name="calculate_route",
-            description="Calculer un itinéraire entre deux points avec l'API IGN",
+            description="""Calculer un itinéraire routier optimisé entre deux points avec l'API de navigation IGN Géoplateforme.
+
+RESSOURCES DISPONIBLES (graphes de navigation basés sur BDTOPO V3) :
+- bdtopo-osrm : Moteur OSRM - Le plus rapide, optimisé pour car (voiture). Recommandé pour calculs simples.
+- bdtopo-valhalla : Moteur Valhalla - Équilibré, supporte car et pedestrian. Bon compromis.
+- bdtopo-pgr : Moteur pgRouting - Supporte les contraintes avancées (banned/preferred/unpreferred). Pour calculs complexes.
+
+PROFILS DE TRANSPORT (vérifier disponibilité via get_route_capabilities) :
+- car : Voiture (défaut) - Utilise le réseau routier automobile
+- pedestrian : Piéton - Utilise chemins piétons, trottoirs, passages
+
+MODES D'OPTIMISATION :
+- fastest : Itinéraire le plus rapide (minimise le temps de trajet) - DÉFAUT
+- shortest : Itinéraire le plus court (minimise la distance)
+
+COORDONNÉES :
+- Format : "longitude,latitude" (ex: "2.337306,48.849319" pour Paris)
+- CRS par défaut : EPSG:4326 (WGS84) - coordonnées géographiques en degrés
+- Possibilité d'utiliser d'autres CRS via paramètre 'crs' (voir GetCapabilities)
+
+POINTS INTERMÉDIAIRES :
+- Permet de forcer le passage par des points spécifiques
+- Format : Liste de chaînes ["lon1,lat1", "lon2,lat2", ...]
+- L'itinéraire sera calculé : start → intermediate1 → intermediate2 → ... → end
+
+CONTRAINTES DE ROUTAGE (nécessite bdtopo-pgr) :
+- Structure : {"constraintType": "banned|preferred|unpreferred", "key": "wayType", "operator": "=", "value": "autoroute"}
+- Types de contraintes :
+  * banned : Interdit (éviter absolument)
+  * preferred : Préféré (favoriser)
+  * unpreferred : Non préféré (éviter si possible)
+- Clés disponibles : wayType, tollway, tunnel, bridge, etc.
+- Exemples :
+  * Éviter les autoroutes : {"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}
+  * Préférer les routes principales : {"constraintType": "preferred", "key": "wayType", "operator": "=", "value": "route"}
+
+UNITÉS :
+- distanceUnit : kilometer (défaut), meter, mile
+- timeUnit : hour (défaut), minute, second
+
+RÉSULTAT RETOURNÉ :
+- start/end : Points de départ/arrivée
+- distance : Distance totale (dans l'unité spécifiée)
+- duration : Durée totale (dans l'unité spécifiée)
+- geometry : Géométrie LineString au format GeoJSON ou Encoded Polyline
+- bbox : Emprise géographique de l'itinéraire (si getBbox=true)
+- portions : Liste des portions de l'itinéraire (avec steps si getSteps=true)
+  * steps : Étapes détaillées avec instructions de navigation, durée, distance par tronçon
+  * attributes : Attributs des tronçons (nom de rue, type de voie, etc.)
+
+EXEMPLES D'UTILISATION :
+1. Itinéraire simple Paris → Lyon en voiture :
+   start="2.3522,48.8566", end="4.8357,45.7640", resource="bdtopo-osrm", profile="car"
+
+2. Itinéraire piéton avec étapes :
+   start="2.33,48.85", end="2.37,48.86", profile="pedestrian", get_steps=true
+
+3. Itinéraire évitant les autoroutes :
+   start="...", end="...", resource="bdtopo-pgr",
+   constraints=[{"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}]
+
+4. Itinéraire avec point de passage obligatoire :
+   start="2.33,48.85", intermediates=["2.35,48.86"], end="2.37,48.87"
+
+WORKFLOW RECOMMANDÉ :
+1. Utiliser get_route_capabilities pour découvrir les ressources, profils et options disponibles
+2. Choisir la ressource adaptée (osrm=rapide, valhalla=équilibré, pgr=contraintes)
+3. Calculer l'itinéraire avec calculate_route
+4. Afficher la géométrie sur une carte (WMS/WMTS IGN) ou utiliser les steps pour navigation guidée""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "start": {"type": "string", "description": "Point de départ (longitude,latitude)"},
-                    "end": {"type": "string", "description": "Point d'arrivée (longitude,latitude)"},
+                    "start": {"type": "string", "description": "Point de départ au format 'longitude,latitude' (ex: '2.337306,48.849319')"},
+                    "end": {"type": "string", "description": "Point d'arrivée au format 'longitude,latitude' (ex: '2.367776,48.852891')"},
                     "resource": {
                         "type": "string",
                         "default": "bdtopo-osrm",
-                        "description": "Graphe de navigation: bdtopo-osrm (rapide), bdtopo-valhalla (équilibré), bdtopo-pgr (contraintes avancées)"
+                        "description": "Graphe de navigation : bdtopo-osrm (rapide, car uniquement), bdtopo-valhalla (équilibré, car+pedestrian), bdtopo-pgr (contraintes avancées)"
                     },
-                    "profile": {"type": "string", "description": "Mode de transport: car, pedestrian"},
+                    "profile": {"type": "string", "description": "Mode de transport : car (voiture, défaut) ou pedestrian (piéton). Vérifier disponibilité par ressource."},
                     "optimization": {
                         "type": "string",
                         "default": "fastest",
-                        "description": "Mode d'optimisation: fastest (plus rapide) ou shortest (plus court)"
+                        "description": "Mode d'optimisation : fastest (temps minimal, défaut) ou shortest (distance minimale)"
                     },
                     "intermediates": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Liste de points intermédiaires (longitude,latitude)"
+                        "description": "Points de passage obligatoires au format 'longitude,latitude'. L'itinéraire passera par ces points dans l'ordre."
                     },
                     "get_steps": {
                         "type": "boolean",
                         "default": True,
-                        "description": "Inclure les étapes détaillées de l'itinéraire"
+                        "description": "Inclure les étapes détaillées (instructions de navigation, durée/distance par tronçon, noms de rues)"
                     },
                     "constraints": {
                         "type": "array",
                         "items": {"type": "object"},
-                        "description": "Contraintes de routage (banned, preferred, unpreferred)"
+                        "description": "Contraintes de routage (nécessite bdtopo-pgr). Ex: [{\"constraintType\": \"banned\", \"key\": \"wayType\", \"operator\": \"=\", \"value\": \"autoroute\"}]"
                     },
+                    "get_bbox": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Inclure l'emprise géographique (bounding box) de l'itinéraire dans la réponse"
+                    },
+                    "geometry_format": {
+                        "type": "string",
+                        "default": "geojson",
+                        "description": "Format de géométrie : geojson (GeoJSON LineString, défaut) ou polyline (Encoded Polyline)"
+                    },
+                    "distance_unit": {
+                        "type": "string",
+                        "default": "kilometer",
+                        "description": "Unité de distance : kilometer (défaut), meter, mile"
+                    },
+                    "time_unit": {
+                        "type": "string",
+                        "default": "hour",
+                        "description": "Unité de temps : hour (défaut), minute, second"
+                    },
+                    "crs": {
+                        "type": "string",
+                        "default": "EPSG:4326",
+                        "description": "Système de coordonnées pour les géométries : EPSG:4326 (WGS84, défaut), EPSG:2154 (Lambert 93), etc."
+                    },
+                    "ways_attributes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Attributs des tronçons à inclure dans la réponse (ex: ['name', 'wayType', 'tollway']). Voir GetCapabilities."
+                    }
                 },
                 "required": ["start", "end"],
             },
         ),
         Tool(
             name="calculate_isochrone",
-            description="Calculer une isochrone (zone accessible en un temps donné) ou isodistance (zone accessible en une distance donnée)",
+            description="""Calculer une isochrone (zone accessible en un temps donné) ou isodistance (zone accessible en une distance donnée) avec l'API de navigation IGN Géoplateforme.
+
+CONCEPT :
+- ISOCHRONE : Polygone représentant tous les points atteignables depuis un point de départ en un temps donné (ex: 15 minutes en voiture)
+- ISODISTANCE : Polygone représentant tous les points atteignables depuis un point de départ en une distance donnée (ex: 5 km à pied)
+
+RESSOURCES DISPONIBLES (graphes de navigation basés sur BDTOPO V3) :
+- bdtopo-valhalla : Moteur Valhalla - RECOMMANDÉ pour isochrones/isodistances, supporte car et pedestrian
+- bdtopo-pgr : Moteur pgRouting - Supporte les contraintes (banned uniquement pour isochrones)
+- bdtopo-iso : Ressource optimisée spécifiquement pour calculs d'isochrones (voir GetCapabilities)
+
+PROFILS DE TRANSPORT (vérifier disponibilité via get_route_capabilities) :
+- car : Voiture (défaut) - Réseau routier automobile
+- pedestrian : Piéton - Chemins piétons, trottoirs, passages
+
+TYPE DE COÛT (cost_type) :
+- time : Calcul basé sur le TEMPS de trajet → ISOCHRONE (défaut)
+  Exemple : "Tous les lieux accessibles en 30 minutes"
+- distance : Calcul basé sur la DISTANCE parcourue → ISODISTANCE
+  Exemple : "Tous les lieux accessibles en 5 kilomètres"
+
+VALEUR DE COÛT (cost_value) :
+- Pour time : Durée en unité spécifiée par time_unit (ex: 30 pour 30 minutes)
+- Pour distance : Distance en unité spécifiée par distance_unit (ex: 5 pour 5 km)
+- Valeurs typiques :
+  * Voiture : 5-60 minutes ou 5-50 km
+  * Piéton : 5-30 minutes ou 1-5 km
+
+DIRECTION (sens du calcul) :
+- departure : Point de DÉPART → calcule les zones d'ARRIVÉE possibles (défaut)
+  Exemple : "Où puis-je aller depuis Paris en 20 minutes ?"
+- arrival : Point d'ARRIVÉE → calcule les zones de DÉPART possibles
+  Exemple : "D'où peut-on venir pour atteindre Paris en 20 minutes ?"
+
+COORDONNÉES :
+- Format : "longitude,latitude" (ex: "2.337306,48.849319" pour Paris)
+- CRS par défaut : EPSG:4326 (WGS84) - coordonnées géographiques en degrés
+- Possibilité d'utiliser d'autres CRS via paramètre 'crs' (voir GetCapabilities)
+
+CONTRAINTES DE ROUTAGE (nécessite bdtopo-pgr) :
+- ⚠️ Pour isochrones, seul le type "banned" est supporté (pas preferred/unpreferred)
+- Structure : {"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}
+- Exemple : Éviter les autoroutes pour isochrone piéton
+  constraints=[{"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}]
+
+UNITÉS :
+- time_unit : second, minute, hour (défaut : hour, mais minute recommandé pour isochrones)
+- distance_unit : meter, kilometer (défaut), mile
+
+FORMAT DE GÉOMÉTRIE :
+- geojson : Polygon GeoJSON (défaut) - Facilement affichable sur carte
+- polyline : Encoded Polyline (format compact)
+
+RÉSULTAT RETOURNÉ :
+- point : Point de référence utilisé
+- resource : Ressource de calcul utilisée
+- costType : Type de coût (time ou distance)
+- costValue : Valeur du coût
+- profile : Profil de transport (car, pedestrian)
+- direction : Direction du calcul (departure, arrival)
+- crs : Système de coordonnées
+- geometry : Géométrie du polygone (Polygon GeoJSON ou Encoded Polyline)
+- departure/arrival : Timestamps de départ/arrivée (si applicable)
+- alerts : Messages d'alerte éventuels
+
+EXEMPLES D'UTILISATION :
+
+1. Zone accessible en 15 minutes en voiture depuis Paris :
+   point="2.3522,48.8566", cost_value=15, cost_type="time", time_unit="minute", profile="car"
+
+2. Zone accessible en 30 minutes à pied depuis Gare du Nord :
+   point="2.3547,48.8809", cost_value=30, cost_type="time", time_unit="minute", profile="pedestrian"
+
+3. Zone accessible en 5 km à vélo (si profil disponible) :
+   point="2.35,48.85", cost_value=5, cost_type="distance", distance_unit="kilometer"
+
+4. D'où peut-on venir pour atteindre l'aéroport en 45 minutes :
+   point="2.5479,49.0097", cost_value=45, cost_type="time", time_unit="minute", direction="arrival"
+
+5. Isochrone évitant les autoroutes :
+   point="2.35,48.85", cost_value=20, cost_type="time", resource="bdtopo-pgr",
+   constraints=[{"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}]
+
+WORKFLOW RECOMMANDÉ :
+1. Utiliser get_route_capabilities pour vérifier les ressources et profils disponibles
+2. Choisir resource=bdtopo-valhalla (standard) ou bdtopo-iso (optimisé)
+3. Définir cost_type=time (isochrone) ou distance (isodistance)
+4. Spécifier cost_value avec l'unité appropriée (ex: 15 minutes, 5 km)
+5. Calculer avec calculate_isochrone
+6. Afficher le polygone résultant sur une carte WMS/WMTS IGN
+
+CAS D'USAGE PRATIQUES :
+- Analyser l'accessibilité d'un lieu (commerces, services publics, transports)
+- Délimiter des zones de chalandise
+- Planifier des interventions d'urgence (pompiers, ambulances)
+- Analyser des temps de trajet domicile-travail
+- Optimiser l'emplacement de nouveaux services""",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "point": {"type": "string", "description": "Point central (longitude,latitude)"},
-                    "cost_value": {"type": "number", "description": "Valeur de temps ou distance"},
+                    "point": {"type": "string", "description": "Point de référence au format 'longitude,latitude' (ex: '2.337306,48.849319')"},
+                    "cost_value": {"type": "number", "description": "Valeur du coût : durée (ex: 15, 30) ou distance (ex: 5, 10) selon cost_type"},
                     "cost_type": {
                         "type": "string",
                         "default": "time",
-                        "description": "Type de coût: time (temps) ou distance"
+                        "description": "Type de coût : time (isochrone basée sur temps) ou distance (isodistance basée sur distance)"
                     },
                     "resource": {
                         "type": "string",
                         "default": "bdtopo-valhalla",
-                        "description": "Graphe de navigation: bdtopo-valhalla (recommandé) ou bdtopo-pgr"
+                        "description": "Graphe de navigation : bdtopo-valhalla (recommandé), bdtopo-iso (optimisé), bdtopo-pgr (avec contraintes)"
                     },
-                    "profile": {"type": "string", "description": "Mode de transport: car, pedestrian"},
+                    "profile": {"type": "string", "description": "Mode de transport : car (voiture, défaut) ou pedestrian (piéton). Vérifier disponibilité par ressource."},
                     "direction": {
                         "type": "string",
                         "default": "departure",
-                        "description": "Direction: departure (depuis le point) ou arrival (vers le point)"
+                        "description": "Sens du calcul : departure (depuis le point vers destinations) ou arrival (depuis origines vers le point)"
                     },
                     "time_unit": {
                         "type": "string",
-                        "default": "hour",
-                        "description": "Unité de temps: second, minute, hour"
+                        "default": "minute",
+                        "description": "Unité de temps pour cost_type=time : second, minute (défaut), hour"
                     },
                     "distance_unit": {
                         "type": "string",
                         "default": "kilometer",
-                        "description": "Unité de distance: meter, kilometer, mile"
+                        "description": "Unité de distance pour cost_type=distance : meter, kilometer (défaut), mile"
                     },
+                    "geometry_format": {
+                        "type": "string",
+                        "default": "geojson",
+                        "description": "Format de géométrie : geojson (Polygon GeoJSON, défaut) ou polyline (Encoded Polyline)"
+                    },
+                    "constraints": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Contraintes de routage (nécessite bdtopo-pgr, uniquement 'banned'). Ex: [{\"constraintType\": \"banned\", \"key\": \"wayType\", \"operator\": \"=\", \"value\": \"autoroute\"}]"
+                    },
+                    "crs": {
+                        "type": "string",
+                        "default": "EPSG:4326",
+                        "description": "Système de coordonnées : EPSG:4326 (WGS84, défaut), EPSG:2154 (Lambert 93), etc."
+                    }
                 },
                 "required": ["point", "cost_value"],
             },
