@@ -908,73 +908,173 @@ max_features=1000""",
             name="calculate_route",
             description="""Calculer un itinéraire routier optimisé entre deux points avec l'API de navigation IGN Géoplateforme.
 
-RESSOURCES DISPONIBLES (graphes de navigation basés sur BDTOPO V3) :
-- bdtopo-osrm : Moteur OSRM - Le plus rapide, optimisé pour car (voiture). Recommandé pour calculs simples.
-- bdtopo-valhalla : Moteur Valhalla - Équilibré, supporte car et pedestrian. Bon compromis.
-- bdtopo-pgr : Moteur pgRouting - Supporte les contraintes avancées (banned/preferred/unpreferred). Pour calculs complexes.
+📍 SERVICE : API Itinéraire IGN Géoplateforme (données ouvertes, sans clé API)
+🔄 LIMITE : Jusqu'à 5 requêtes/seconde
+🗺️ SOURCE : BD TOPO® (réseau routier et tables de communication)
 
-PROFILS DE TRANSPORT (vérifier disponibilité via get_route_capabilities) :
-- car : Voiture (défaut) - Utilise le réseau routier automobile
-- pedestrian : Piéton - Utilise chemins piétons, trottoirs, passages
+RESSOURCES DISPONIBLES (graphes de navigation basés sur BD TOPO V3) :
+
+1. **bdtopo-osrm** (OSRM) - ⚡ PERFORMANCES MAXIMALES
+   - Le plus rapide des 3 moteurs
+   - Support : car (voiture) uniquement
+   - Contraintes : Limitées (options de base)
+   - Usage : Calculs simples, applications grand public, forte volumétrie
+   - ⚠️ LIMITATION : "fastest" non disponible pour pedestrian sur cette ressource
+
+2. **bdtopo-valhalla** (Valhalla) - ⚖️ ÉQUILIBRÉ
+   - Bon compromis performance/fonctionnalités
+   - Support : car (voiture) ET pedestrian (piéton)
+   - Contraintes : Moyennes
+   - Usage : Applications polyvalentes, bon choix par défaut
+
+3. **bdtopo-pgr** (pgRouting) - 🎯 CONTRAINTES AVANCÉES
+   - Performance moindre mais fonctionnalités étendues
+   - Support : car et pedestrian avec contraintes complexes
+   - Contraintes : Étendues (banned, preferred, unpreferred)
+   - Attributs BD TOPO : Accès aux attributs détaillés des tronçons
+   - Usage : Calculs complexes, routage avec contraintes métier
+
+PROFILS DE TRANSPORT :
+
+- **car** (voiture) - DÉFAUT
+  * Vitesses : 10-125 km/h selon type de voie
+  * Autoroutes : 125 km/h (base)
+  * Routes importance 1-6 : 90-50 km/h
+  * Voies restreintes : 10 km/h minimum
+  * Modèle de vitesse : Calcul dynamique selon :
+    - Classification routière (autoroute, importance 1-6)
+    - Caractéristiques urbain/rural
+    - Caractéristiques physiques (largeur, sinuosité)
+    - Contexte environnemental (densité bâti, écoles)
+    - Pénalités cumulatives jusqu'à 80% (voies rurales étroites, proximité intersections, zones urbaines denses)
+
+- **pedestrian** (piéton)
+  * Vitesse base : 4 km/h sur routes non autoroutières
+  * Réseau : Chemins piétons, trottoirs, passages protégés
+  * ⚠️ LIMITATION : optimization="fastest" non disponible avec bdtopo-osrm
 
 MODES D'OPTIMISATION :
-- fastest : Itinéraire le plus rapide (minimise le temps de trajet) - DÉFAUT
-- shortest : Itinéraire le plus court (minimise la distance)
+
+- **fastest** - Itinéraire le plus RAPIDE (minimise temps de trajet) - DÉFAUT
+  * Privilégie les routes rapides (autoroutes, voies express)
+  * ⚠️ Non disponible pour pedestrian + bdtopo-osrm
+
+- **shortest** - Itinéraire le plus COURT (minimise distance)
+  * Privilégie le kilométrage minimal
+  * Peut emprunter des routes plus lentes
 
 COORDONNÉES :
+
 - Format : "longitude,latitude" (ex: "2.337306,48.849319" pour Paris)
 - CRS par défaut : EPSG:4326 (WGS84) - coordonnées géographiques en degrés
-- Possibilité d'utiliser d'autres CRS via paramètre 'crs' (voir GetCapabilities)
+- Autres CRS : EPSG:2154 (Lambert 93), EPSG:3857 (Web Mercator), etc. (via paramètre 'crs')
 
 POINTS INTERMÉDIAIRES :
+
 - Permet de forcer le passage par des points spécifiques
 - Format : Liste de chaînes ["lon1,lat1", "lon2,lat2", ...]
 - L'itinéraire sera calculé : start → intermediate1 → intermediate2 → ... → end
+- Usage : Livraisons multi-points, circuits touristiques, respect d'un parcours imposé
 
-CONTRAINTES DE ROUTAGE (nécessite bdtopo-pgr) :
-- Structure : {"constraintType": "banned|preferred|unpreferred", "key": "wayType", "operator": "=", "value": "autoroute"}
-- Types de contraintes :
-  * banned : Interdit (éviter absolument)
-  * preferred : Préféré (favoriser)
-  * unpreferred : Non préféré (éviter si possible)
-- Clés disponibles : wayType, tollway, tunnel, bridge, etc.
-- Exemples :
-  * Éviter les autoroutes : {"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}
-  * Préférer les routes principales : {"constraintType": "preferred", "key": "wayType", "operator": "=", "value": "route"}
+CONTRAINTES DE ROUTAGE (nécessite resource="bdtopo-pgr") :
 
-UNITÉS :
+- Structure JSON : {"constraintType": "TYPE", "key": "ATTRIBUTE", "operator": "=", "value": "VALUE"}
+
+- **Types de contraintes** :
+  * banned : INTERDIT - Éviter absolument (ex: pas d'autoroutes)
+  * preferred : PRÉFÉRÉ - Favoriser (ex: préférer les routes principales)
+  * unpreferred : NON PRÉFÉRÉ - Éviter si possible (ex: éviter les tunnels)
+
+- **Attributs disponibles (clés)** :
+  * wayType : Type de voie (autoroute, route, chemin, etc.)
+  * tollway : Routes à péage (true/false)
+  * tunnel : Tunnels (true/false)
+  * bridge : Ponts (true/false)
+  * importance : Niveau d'importance (1-6)
+  * nature : Nature de la voie (voir BD TOPO)
+
+- **Exemples de contraintes** :
+  * Éviter autoroutes : {"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}
+  * Éviter péages : {"constraintType": "banned", "key": "tollway", "operator": "=", "value": "true"}
+  * Préférer routes principales : {"constraintType": "preferred", "key": "importance", "operator": "=", "value": "1"}
+  * Éviter tunnels : {"constraintType": "unpreferred", "key": "tunnel", "operator": "=", "value": "true"}
+
+UNITÉS CONFIGURABLES :
+
 - distanceUnit : kilometer (défaut), meter, mile
 - timeUnit : hour (défaut), minute, second
 
 RÉSULTAT RETOURNÉ :
-- start/end : Points de départ/arrivée
-- distance : Distance totale (dans l'unité spécifiée)
-- duration : Durée totale (dans l'unité spécifiée)
-- geometry : Géométrie LineString au format GeoJSON ou Encoded Polyline
-- bbox : Emprise géographique de l'itinéraire (si getBbox=true)
-- portions : Liste des portions de l'itinéraire (avec steps si getSteps=true)
-  * steps : Étapes détaillées avec instructions de navigation, durée, distance par tronçon
-  * attributes : Attributs des tronçons (nom de rue, type de voie, etc.)
+
+- **start/end** : Points de départ/arrivée (coordonnées)
+- **distance** : Distance totale (dans l'unité spécifiée)
+- **duration** : Durée totale (dans l'unité spécifiée)
+- **geometry** : Géométrie LineString (GeoJSON ou Encoded Polyline)
+- **bbox** : Emprise géographique [minx, miny, maxx, maxy] (si getBbox=true)
+- **resourceVersion** : Version du graphe de navigation (date de mise à jour)
+- **profile** : Profil utilisé (car, pedestrian)
+- **optimization** : Optimisation appliquée (fastest, shortest)
+- **crs** : Système de coordonnées des géométries
+- **portions** : Liste des portions de l'itinéraire
+  * start/end : Début/fin de la portion
+  * duration/distance : Durée/distance de la portion
+  * bbox : Emprise de la portion
+  * steps : Étapes détaillées (si getSteps=true)
+    - id : Identifiant du tronçon
+    - duration/distance : Durée/distance du tronçon
+    - geometry : Géométrie du tronçon
+    - instructions : Instructions de navigation turn-by-turn
+    - attributes : Attributs BD TOPO (si waysAttributes spécifié)
+      - name : Nom de la rue/route
+      - wayType : Type de voie
+      - importance : Niveau d'importance
+      - tollway, tunnel, bridge : Caractéristiques
 
 EXEMPLES D'UTILISATION :
-1. Itinéraire simple Paris → Lyon en voiture :
+
+1. Itinéraire simple Paris → Lyon en voiture (rapide) :
    start="2.3522,48.8566", end="4.8357,45.7640", resource="bdtopo-osrm", profile="car"
 
-2. Itinéraire piéton avec étapes :
-   start="2.33,48.85", end="2.37,48.86", profile="pedestrian", get_steps=true
+2. Itinéraire piéton avec instructions détaillées :
+   start="2.33,48.85", end="2.37,48.86", profile="pedestrian", get_steps=true,
+   ways_attributes=["name", "wayType"]
 
-3. Itinéraire évitant les autoroutes :
-   start="...", end="...", resource="bdtopo-pgr",
-   constraints=[{"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"}]
+3. Itinéraire voiture évitant autoroutes et péages :
+   start="2.35,48.85", end="4.84,45.76", resource="bdtopo-pgr", profile="car",
+   constraints=[
+     {"constraintType": "banned", "key": "wayType", "operator": "=", "value": "autoroute"},
+     {"constraintType": "banned", "key": "tollway", "operator": "=", "value": "true"}
+   ]
 
-4. Itinéraire avec point de passage obligatoire :
-   start="2.33,48.85", intermediates=["2.35,48.86"], end="2.37,48.87"
+4. Circuit touristique avec points de passage (Louvre → Tour Eiffel → Sacré-Cœur) :
+   start="2.3376,48.8606",
+   intermediates=["2.2945,48.8584"],
+   end="2.3431,48.8867",
+   get_steps=true, get_bbox=true
+
+5. Itinéraire le plus court (pas le plus rapide) :
+   start="2.35,48.85", end="2.45,48.90", optimization="shortest"
 
 WORKFLOW RECOMMANDÉ :
-1. Utiliser get_route_capabilities pour découvrir les ressources, profils et options disponibles
-2. Choisir la ressource adaptée (osrm=rapide, valhalla=équilibré, pgr=contraintes)
-3. Calculer l'itinéraire avec calculate_route
-4. Afficher la géométrie sur une carte (WMS/WMTS IGN) ou utiliser les steps pour navigation guidée""",
+
+1. **Découverte** : Utiliser get_route_capabilities pour voir ressources/profils/options disponibles
+2. **Choix ressource** :
+   - Simple/rapide → bdtopo-osrm
+   - Polyvalent → bdtopo-valhalla (défaut recommandé)
+   - Contraintes → bdtopo-pgr
+3. **Calcul** : Appeler calculate_route avec paramètres appropriés
+4. **Visualisation** : Afficher geometry sur carte (WMS/WMTS IGN) ou utiliser steps pour navigation guidée
+5. **Exploitation** : Extraire distance, duration, et attributs pour analyse ou affichage
+
+CAS D'USAGE :
+
+- 🚗 Applications GPS et navigation
+- 🚚 Optimisation de tournées de livraison
+- 🚑 Planification d'interventions d'urgence
+- 🚌 Calcul d'itinéraires de transports scolaires
+- 📊 Analyses de temps de trajet domicile-travail
+- 🏢 Études d'accessibilité de sites commerciaux
+- 🗺️ Création de cartes interactives avec routage""",
             inputSchema={
                 "type": "object",
                 "properties": {
