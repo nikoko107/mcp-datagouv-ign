@@ -1293,42 +1293,301 @@ CAS D'USAGE PRATIQUES :
         # IGN ALTIMETRIE (3 outils)
         Tool(
             name="get_altimetry_resources",
-            description="Récupérer la liste des ressources altimétriques disponibles (MNT, MNS, etc.)",
+            description="""Récupérer la liste des ressources altimétriques disponibles (MNT, MNS, etc.) avec l'API IGN Géoplateforme.
+
+📍 SERVICE : API Altimétrie IGN Géoplateforme (données ouvertes, sans clé API)
+🔄 LIMITE : Jusqu'à 5 requêtes/seconde
+🗺️ SOURCE : RGE ALTI®, BD ALTI®, et autres Modèles Numériques de Terrain/Surface
+
+ENDPOINT :
+- Liste ressources : https://data.geopf.fr/altimetrie/resources
+- Détails ressource : https://data.geopf.fr/altimetrie/resources/{id_ressource}
+
+TYPES DE RESSOURCES DISPONIBLES :
+
+1. **Données nationales simples** :
+   - Couverture nationale ou mondiale
+   - MNT (Modèle Numérique de Terrain) : surface du sol sans végétation/bâtiments
+   - Exemple : ign_rge_alti_wld (RGE ALTI® mondial)
+
+2. **MNT/MNS avec métadonnées** :
+   - MNT : Modèle Numérique de Terrain (sol nu)
+   - MNS : Modèle Numérique de Surface (surface visible, avec végétation/bâti)
+   - Métadonnées dynamiques : source de mesure, précision, distance d'interpolation
+   - Exemple : RGE ALTI indique "Distance d'interpolation inférieure à 1 m"
+
+3. **Ressources superposées/juxtaposées** :
+   - Combinaison de plusieurs sources pour couverture étendue
+   - Gestion automatique des priorités entre sources
+
+INFORMATIONS RETOURNÉES PAR RESSOURCE :
+
+- **id** : Identifiant unique de la ressource
+- **titre** : Nom descriptif
+- **description** : Description détaillée de la ressource
+- **source_name** : Nom de la source de données (RGE ALTI, BD ALTI, etc.)
+- **source_measure** : Type de mesure
+  * "Fixed value" : Valeur fixe (résolution constante)
+  * "Dynamic value" : Valeur dynamique (précision variable selon zone)
+- **coverage** : Zone de couverture géographique
+- **resolution** : Résolution spatiale (ex: 1m, 5m, 25m)
+- **precision** : Précision altimétrique (métrique)
+
+PRINCIPALES RESSOURCES IGN :
+
+- **ign_rge_alti_wld** : RGE ALTI® couverture mondiale (recommandé par défaut)
+  * Haute précision sur France métropolitaine
+  * Couverture mondiale avec dégradation progressive
+  * Résolution 1m à 5m selon zones
+
+- **ign_bd_alti_75m** : BD ALTI® 75m
+  * Couverture France métropolitaine
+  * Résolution 75m
+  * Précision métrique
+
+- **ign_bd_alti_25m** : BD ALTI® 25m
+  * Couverture France métropolitaine
+  * Résolution 25m
+  * Précision métrique améliorée
+
+USAGE :
+
+Cette opération de découverte permet de :
+1. Lister toutes les ressources disponibles pour un usage
+2. Vérifier la couverture géographique d'une ressource
+3. Comparer les résolutions et précisions
+4. Choisir la ressource adaptée avant appel à get_elevation ou get_elevation_line
+
+WORKFLOW RECOMMANDÉ :
+
+1. **Découverte** : Appeler get_altimetry_resources pour lister les ressources
+2. **Analyse** : Comparer résolution, précision, couverture selon besoin
+3. **Sélection** : Choisir la ressource appropriée (par défaut : ign_rge_alti_wld)
+4. **Utilisation** : Utiliser l'id de la ressource dans get_elevation ou get_elevation_line
+
+EXEMPLES D'UTILISATION :
+
+1. Lister toutes les ressources disponibles :
+   (aucun paramètre requis, retourne la liste complète)
+
+2. Cas d'usage typiques :
+   - Cartographie précise → ign_rge_alti_wld (1-5m)
+   - Analyse régionale → ign_bd_alti_25m
+   - Études à grande échelle → ign_bd_alti_75m
+
+CAS D'USAGE :
+
+- 🏔️ Planification de randonnées et trails
+- 📊 Analyses de visibilité et exposition
+- 🏗️ Études de projets d'aménagement
+- 🌊 Modélisation hydraulique et bassins versants
+- 📡 Calculs de lignes de vue (télécommunications)
+- 🚁 Planification de vols de drones
+- 🗺️ Production de cartes topographiques""",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="get_elevation",
-            description="Récupérer l'altitude d'un ou plusieurs points géographiques",
+            description="""Récupérer l'altitude d'un ou plusieurs points géographiques avec l'API Altimétrie IGN Géoplateforme.
+
+📍 SERVICE : API Altimétrie IGN Géoplateforme (données ouvertes, sans clé API)
+🔄 LIMITE : Jusqu'à 5 requêtes/seconde
+📏 LIMITE POINTS : Maximum 5 000 points par requête
+🎯 PRÉCISION : Altitudes arrondies à 2 décimales
+
+ENDPOINT :
+- GET/POST : https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json
+
+OPÉRATION : ALTITUDE PONCTUELLE
+
+Obtenir l'altitude précise d'un ou plusieurs points géographiques à partir de Modèles Numériques de Terrain (MNT).
+
+COORDONNÉES :
+
+- **Format** : Listes de longitudes et latitudes séparées par délimiteur
+- **Longitude** : -180° à +180° (WGS84)
+- **Latitude** : -90° à +90° (WGS84)
+- **Délimiteurs supportés** : | (pipe), ; (point-virgule), , (virgule)
+- **Nombre de points** : 1 à 5 000 par requête
+- ⚠️ **Important** : Même nombre de longitudes et latitudes obligatoire
+
+RESSOURCES DISPONIBLES :
+
+- **ign_rge_alti_wld** (DÉFAUT RECOMMANDÉ) :
+  * RGE ALTI® couverture mondiale
+  * Haute précision France métropolitaine (1-5m)
+  * Couverture mondiale dégradée
+
+- **ign_bd_alti_25m** :
+  * BD ALTI® 25m France métropolitaine
+  * Résolution 25m, précision métrique
+
+- **ign_bd_alti_75m** :
+  * BD ALTI® 75m France métropolitaine
+  * Résolution 75m, analyses à grande échelle
+
+Voir get_altimetry_resources pour liste complète et détails.
+
+PARAMÈTRES :
+
+1. **lon** (obligatoire) : Longitude(s)
+   - Format : "2.3522" (point unique) ou "2.3|2.4|2.5" (multiples)
+   - Séparateur : selon paramètre delimiter (défaut |)
+
+2. **lat** (obligatoire) : Latitude(s)
+   - Format : "48.8566" (point unique) ou "48.8|48.9|49.0" (multiples)
+   - Même nombre que lon
+
+3. **resource** (optionnel) : Ressource altimétrique
+   - Défaut : "ign_rge_alti_wld"
+   - Utiliser get_altimetry_resources pour découvrir les options
+
+4. **delimiter** (optionnel) : Séparateur
+   - Valeurs : "|" (défaut), ";", ","
+   - Doit être cohérent pour lon et lat
+
+5. **zonly** (optionnel) : Format de réponse simplifié
+   - false (défaut) : Réponse complète {lon, lat, z, acc}
+   - true : Tableau simple d'altitudes [z1, z2, z3, ...]
+
+6. **measures** (optionnel) : Métadonnées multi-sources
+   - false (défaut) : Altitude simple
+   - true : Inclut source_name, source_measure, titre ressource
+   - Utile pour ressources superposées/juxtaposées
+
+FORMAT DE RÉPONSE :
+
+**Réponse standard (zonly=false)** :
+```json
+{
+  "elevations": [
+    {"lon": 2.3522, "lat": 48.8566, "z": 35.17, "acc": "Précision mètre"},
+    {"lon": 6.8651, "lat": 45.8326, "z": 4759.23, "acc": "Haute précision"}
+  ]
+}
+```
+
+**Réponse simplifiée (zonly=true)** :
+```json
+{
+  "elevations": [35.17, 4759.23, 121.45]
+}
+```
+
+**Réponse avec métadonnées (measures=true)** :
+```json
+{
+  "elevations": [
+    {
+      "lon": 2.3522, "lat": 48.8566, "z": 35.17, "acc": "1m",
+      "measures": [
+        {
+          "source_name": "RGE ALTI",
+          "source_measure": "Dynamic value",
+          "resource_title": "RGE ALTI® - France métropolitaine",
+          "z": 35.17
+        }
+      ]
+    }
+  ]
+}
+```
+
+VALEURS SPÉCIALES :
+
+- **-99999** : Valeur "no data" pour zones non couvertes par la ressource
+  * Points en mer
+  * Zones hors couverture de la ressource
+  * Données manquantes
+
+EXEMPLES D'UTILISATION :
+
+1. Altitude d'un point unique (Tour Eiffel, Paris) :
+   lon="2.2945", lat="48.8584", resource="ign_rge_alti_wld"
+   → Résultat : ~35 mètres
+
+2. Altitude de plusieurs sommets français :
+   lon="6.8651|4.8357|0.1410", lat="45.8326|45.7640|-0.5792"
+   → Mont Blanc (4759m), Lyon (~200m), Bordeaux (~50m)
+
+3. Profil simplifié avec zonly (pour graphique) :
+   lon="2.0|2.1|2.2|2.3|2.4", lat="48.8|48.8|48.8|48.8|48.8", zonly=true
+   → Tableau simple : [45.2, 52.1, 38.9, 35.4, 41.7]
+
+4. Délimiteur point-virgule :
+   lon="2.3;2.4;2.5", lat="48.8;48.9;49.0", delimiter=";"
+
+5. Métadonnées multi-sources (ressource composite) :
+   lon="2.35", lat="48.85", measures=true
+   → Détails de la source de données utilisée
+
+6. Calcul d'altitudes pour itinéraire (50 points) :
+   lon="2.3|2.31|2.32|...", lat="48.8|48.81|48.82|...", zonly=true
+   → Altitudes pour profil altimétrique
+
+WORKFLOW RECOMMANDÉ :
+
+1. **Découverte** (optionnel) : Appeler get_altimetry_resources pour choisir ressource
+2. **Préparation** : Formater coordonnées lon/lat avec délimiteur cohérent
+3. **Appel** : Requête get_elevation avec paramètres appropriés
+4. **Traitement** :
+   - Vérifier z != -99999 (données valides)
+   - Utiliser zonly=true pour intégration graphique simplifiée
+   - Utiliser measures=true pour audit de sources de données
+
+CAS D'USAGE PRATIQUES :
+
+- 🏔️ **Randonnée** : Altitude de refuges, sommets, cols
+- 📊 **Cartographie** : Annotations altimétriques sur cartes
+- 🏗️ **BTP** : Altitude de points de construction, nivellement
+- 🌊 **Hydraulique** : Altitude de points d'intérêt pour bassins versants
+- ✈️ **Aviation** : Altitude terrain pour planification vol
+- 📡 **Télécoms** : Altitude antennes/relais pour calculs de portée
+- 🚴 **Cyclisme/Running** : Altitude de parcours pour dénivelés
+- 🎯 **Géolocalisation** : Enrichissement de coordonnées GPS avec altitude
+
+PERFORMANCE :
+
+- Requête unique : ~100ms pour 1 point
+- Requête batch : ~500ms pour 5000 points
+- ⚡ **Optimisation** : Regrouper les points en batch plutôt que requêtes individuelles
+
+NOTES IMPORTANTES :
+
+- Altitudes exprimées en mètres au-dessus du niveau de la mer (NGF pour France)
+- Précision dépend de la ressource et de la zone géographique
+- Pour profils altimétriques interpolés, utiliser get_elevation_line à la place
+- CRS : EPSG:4326 (WGS84) uniquement pour les coordonnées d'entrée""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "lon": {
                         "type": "string",
-                        "description": "Longitude(s) séparée(s) par | (ex: '2.3522' ou '2.3|2.4|2.5')"
+                        "description": "Longitude(s) séparée(s) par délimiteur (ex: '2.3522' ou '2.3|2.4|2.5'). Plage: -180 à +180. Max: 5000 points."
                     },
                     "lat": {
                         "type": "string",
-                        "description": "Latitude(s) séparée(s) par | (ex: '48.8566' ou '48.8|48.9|49.0')"
+                        "description": "Latitude(s) séparée(s) par délimiteur (ex: '48.8566' ou '48.8|48.9|49.0'). Plage: -90 à +90. Même nombre que lon."
                     },
                     "resource": {
                         "type": "string",
                         "default": "ign_rge_alti_wld",
-                        "description": "Ressource altimétrique (ign_rge_alti_wld pour mondial)"
+                        "description": "Ressource altimétrique : ign_rge_alti_wld (mondial, défaut), ign_bd_alti_25m, ign_bd_alti_75m. Voir get_altimetry_resources."
                     },
                     "delimiter": {
                         "type": "string",
                         "default": "|",
-                        "description": "Séparateur de coordonnées: | ; ou ,"
+                        "description": "Séparateur de coordonnées : | (pipe, défaut), ; (point-virgule), ou , (virgule)"
                     },
                     "zonly": {
                         "type": "boolean",
                         "default": False,
-                        "description": "Retourner uniquement les altitudes (sans coordonnées)"
+                        "description": "true: retourne tableau simple d'altitudes [z1,z2,...]. false (défaut): objets complets {lon,lat,z,acc}"
                     },
                     "measures": {
                         "type": "boolean",
                         "default": False,
-                        "description": "Inclure les détails de mesure multi-sources"
+                        "description": "true: inclut métadonnées multi-sources (source_name, source_measure, titre). false (défaut): altitude simple"
                     },
                 },
                 "required": ["lon", "lat"],
@@ -1336,42 +1595,258 @@ CAS D'USAGE PRATIQUES :
         ),
         Tool(
             name="get_elevation_line",
-            description="Calculer un profil altimétrique le long d'une ligne (dénivelés positif/négatif)",
+            description="""Calculer un profil altimétrique le long d'une ligne (trajet) avec dénivelés positif/négatif.
+
+📍 SERVICE : API Altimétrie IGN Géoplateforme (données ouvertes, sans clé API)
+🔄 LIMITE : Jusqu'à 5 requêtes/seconde
+📏 LIMITE ÉCHANTILLONNAGE : 2 à 5 000 points par requête
+🎯 PRÉCISION : Altitudes arrondies à 2 décimales
+
+ENDPOINT :
+- GET/POST : https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevationLine.json
+
+OPÉRATION : PROFIL ALTIMÉTRIQUE EN LONG
+
+Calcule un profil altimétrique interpolé le long d'une polyligne définie par plusieurs points. Contrairement à get_elevation qui retourne les altitudes ponctuelles, cet outil :
+- **Interpole** les altitudes entre les points définis
+- **Échantillonne** la ligne en un nombre configurable de points
+- **Calcule** les dénivelés positifs et négatifs cumulés
+
+COORDONNÉES DE LA LIGNE :
+
+- **Format** : Minimum 2 points (départ et arrivée)
+- **Longitude** : -180° à +180° (WGS84)
+- **Latitude** : -90° à +90° (WGS84)
+- **Délimiteurs supportés** : | (pipe), ; (point-virgule), , (virgule)
+- ⚠️ **Important** : Même nombre de longitudes et latitudes obligatoire
+
+RESSOURCES DISPONIBLES :
+
+- **ign_rge_alti_wld** (DÉFAUT RECOMMANDÉ) :
+  * RGE ALTI® couverture mondiale
+  * Haute précision France métropolitaine (1-5m)
+  * Idéal pour randonnées, cyclisme
+
+- **ign_bd_alti_25m** :
+  * BD ALTI® 25m France métropolitaine
+  * Résolution 25m pour analyses régionales
+
+- **ign_bd_alti_75m** :
+  * BD ALTI® 75m France métropolitaine
+  * Grandes distances, analyses macro
+
+PARAMÈTRES :
+
+1. **lon** (obligatoire) : Longitudes de la polyligne
+   - Format : "2.3|2.4|2.5" (minimum 2 points)
+   - Définit le tracé horizontal de la ligne
+   - Séparateur : selon paramètre delimiter
+
+2. **lat** (obligatoire) : Latitudes de la polyligne
+   - Format : "48.8|48.9|49.0" (minimum 2 points)
+   - Même nombre que lon
+
+3. **sampling** (optionnel) : Nombre de points d'échantillonnage
+   - Plage : 2 à 5 000
+   - Défaut : nombre de couples lon/lat fournis
+   - Plus élevé = profil plus détaillé mais temps calcul supérieur
+   - Recommandations :
+     * 50-100 : Randonnée courte (< 10 km)
+     * 100-500 : Randonnée longue (10-50 km)
+     * 500-1000 : Cyclosportive, ultra-trail
+     * > 1000 : Routes nationales, analyses détaillées
+
+4. **profile_mode** (optionnel) : Mode de calcul
+   - **simple** (défaut) : Interpolation linéaire rapide
+   - **accurate** : Précision accrue, échantillonnage plus fin
+   - Utiliser "accurate" pour :
+     * Terrains montagneux accidentés
+     * Besoins de précision élevée
+     * Calculs de dénivelés exacts pour compétitions
+
+5. **resource** (optionnel) : Ressource altimétrique
+   - Défaut : "ign_rge_alti_wld"
+   - Voir get_altimetry_resources pour options
+
+6. **delimiter** (optionnel) : Séparateur
+   - Valeurs : "|" (défaut), ";", ","
+   - Cohérent pour lon et lat
+
+7. **zonly** (optionnel) : Format de réponse simplifié
+   - false (défaut) : Réponse complète avec lon, lat, z
+   - true : Tableau simple d'altitudes
+
+FORMAT DE RÉPONSE :
+
+**Réponse complète (zonly=false)** :
+```json
+{
+  "elevations": [
+    {"lon": 2.3, "lat": 48.8, "z": 150.23},
+    {"lon": 2.31, "lat": 48.81, "z": 175.67},
+    {"lon": 2.32, "lat": 48.82, "z": 165.12},
+    ...
+  ],
+  "positiveHeightDifference": 245.8,
+  "negativeHeightDifference": 189.3
+}
+```
+
+**Réponse simplifiée (zonly=true)** :
+```json
+{
+  "elevations": [150.23, 175.67, 165.12, 180.45, ...],
+  "positiveHeightDifference": 245.8,
+  "negativeHeightDifference": 189.3
+}
+```
+
+DÉNIVELÉS CALCULÉS :
+
+- **positiveHeightDifference** (D+) : Dénivelé positif cumulé en mètres
+  * Somme de toutes les montées
+  * Exemple : 1200m D+ pour un col de montagne
+
+- **negativeHeightDifference** (D-) : Dénivelé négatif cumulé en mètres
+  * Somme de toutes les descentes (valeur absolue)
+  * Exemple : 800m D- pour descente
+
+VALEURS SPÉCIALES :
+
+- **-99999** : "no data" pour zones non couvertes
+  * Portions en mer
+  * Données manquantes
+
+EXEMPLES D'UTILISATION :
+
+1. Profil simple randonnée (5 points, 50 échantillons) :
+   lon="2.3|2.32|2.34|2.36|2.38", lat="48.8|48.82|48.84|48.86|48.88",
+   sampling=50, profile_mode="simple"
+   → Profil interpolé avec D+/D-
+
+2. Profil précis ascension Mont Blanc (trace GPX simplifiée) :
+   lon="6.86|6.87|6.865", lat="45.82|45.83|45.832",
+   sampling=200, profile_mode="accurate", resource="ign_rge_alti_wld"
+   → D+ ~2000m depuis refuge
+
+3. Cyclosportive (étape de montagne) :
+   lon="long_trace_avec_10_points", lat="lat_trace_avec_10_points",
+   sampling=500, profile_mode="accurate"
+   → Profil détaillé pour calculateur de watts
+
+4. Profil simplifié pour graphique (zonly) :
+   lon="2.0|2.5|3.0", lat="48.0|48.5|49.0",
+   sampling=100, zonly=true
+   → Tableau simple pour affichage direct
+
+5. Itinéraire routier Paris → Lyon (route simplifiée) :
+   lon="2.35|3.0|3.5|4.0|4.5|4.84", lat="48.85|48.5|47.5|46.5|46.0|45.76",
+   sampling=300
+   → Profil altimétrique national
+
+6. Trail ultra-distance avec délimiteur ; :
+   lon="2.3;2.4;2.5;2.6", lat="48.8;48.9;49.0;49.1",
+   delimiter=";", sampling=1000, profile_mode="accurate"
+   → Profil haute précision pour analyse
+
+WORKFLOW RECOMMANDÉ :
+
+1. **Définition du tracé** :
+   - Obtenir coordonnées GPS du parcours (GPX, itinéraire calculate_route, etc.)
+   - Simplifier si trop de points (garder points stratégiques : sommets, cols, vallées)
+
+2. **Choix du sampling** :
+   - Distance courte (< 10 km) : 50-100
+   - Distance moyenne (10-50 km) : 100-500
+   - Longue distance (> 50 km) : 500-1000+
+
+3. **Choix du mode** :
+   - Montagne/terrain accidenté : "accurate"
+   - Plaine/vitesse : "simple"
+
+4. **Appel API** : get_elevation_line avec paramètres
+
+5. **Exploitation** :
+   - Afficher graphique altitude vs distance
+   - Calculer pentes moyennes/maximales
+   - Estimer temps de parcours (D+ influence)
+   - Identifier sections difficiles
+
+CAS D'USAGE PRATIQUES :
+
+- 🏔️ **Randonnée/Trail** : Profils de sentiers GR, cols alpins, ultra-trails
+- 🚴 **Cyclisme** : Profils étapes Tour de France, cyclosportives, cols mythiques
+- 🏃 **Running** : Parcours courses nature, semi-marathons vallonnés
+- 🏗️ **BTP** : Profils de tracés routiers, lignes ferroviaires, canalisations
+- 🌊 **Hydraulique** : Profils de cours d'eau, canaux, lignes de crête
+- 📊 **Cartographie** : Coupes topographiques pour cartes IGN
+- ✈️ **Aviation** : Profils de trajectoires d'approche
+- 🎿 **Sports d'hiver** : Profils de pistes de ski, difficultés
+
+INTÉGRATION AVEC AUTRES OUTILS :
+
+- **calculate_route** → get_elevation_line :
+  1. Calculer itinéraire routier avec calculate_route
+  2. Extraire geometry (LineString GeoJSON)
+  3. Convertir en lon/lat avec sampling adapté
+  4. Calculer profil altimétrique avec get_elevation_line
+
+- **get_wfs_features** → get_elevation_line :
+  1. Récupérer tracé GR (sentiers IGN) via WFS
+  2. Extraire coordonnées du tracé
+  3. Calculer profil avec get_elevation_line
+
+PERFORMANCE :
+
+- 2 points, 50 samples : ~150ms
+- 10 points, 500 samples : ~400ms
+- 20 points, 1000 samples (accurate) : ~800ms
+- ⚡ **Optimisation** :
+  * Simplifier trace d'entrée (garder points clés)
+  * Ajuster sampling selon besoin (pas toujours nécessaire 5000)
+
+NOTES IMPORTANTES :
+
+- Altitudes en mètres NGF (France) ou niveau mer (monde)
+- L'interpolation suit la ligne droite entre points, pas le terrain réel
+- Pour tracé précis suivant routes/sentiers, augmenter le sampling
+- D+/D- prennent en compte TOUTES les variations, même mineures
+- Pour compatibilité GPX : exporter elevations + reconstruire GPX avec altitudes""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "lon": {
                         "type": "string",
-                        "description": "Longitudes des points de la ligne séparés par | (minimum 2 points)"
+                        "description": "Longitudes des points de la polyligne séparés par délimiteur (minimum 2). Ex: '2.3|2.4|2.5|2.6'"
                     },
                     "lat": {
                         "type": "string",
-                        "description": "Latitudes des points de la ligne séparés par | (minimum 2 points)"
-                    },
-                    "resource": {
-                        "type": "string",
-                        "default": "ign_rge_alti_wld",
-                        "description": "Ressource altimétrique"
-                    },
-                    "delimiter": {
-                        "type": "string",
-                        "default": "|",
-                        "description": "Séparateur: | ; ou ,"
-                    },
-                    "profile_mode": {
-                        "type": "string",
-                        "default": "simple",
-                        "description": "Mode de calcul: simple (rapide) ou accurate (précis)"
+                        "description": "Latitudes des points de la polyligne séparés par délimiteur (minimum 2, même nombre que lon). Ex: '48.8|48.9|49.0|49.1'"
                     },
                     "sampling": {
                         "type": "integer",
                         "default": 50,
-                        "description": "Nombre de points d'échantillonnage (2-5000)"
+                        "description": "Nombre de points d'échantillonnage sur la ligne (2-5000). Plus élevé = profil plus détaillé. Défaut: nombre de points fournis"
+                    },
+                    "profile_mode": {
+                        "type": "string",
+                        "default": "simple",
+                        "description": "Mode de calcul : 'simple' (interpolation rapide, défaut) ou 'accurate' (précision accrue, montagne)"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "ign_rge_alti_wld",
+                        "description": "Ressource altimétrique : ign_rge_alti_wld (mondial, défaut), ign_bd_alti_25m, ign_bd_alti_75m"
+                    },
+                    "delimiter": {
+                        "type": "string",
+                        "default": "|",
+                        "description": "Séparateur de coordonnées : | (pipe, défaut), ; (point-virgule), ou , (virgule)"
                     },
                     "zonly": {
                         "type": "boolean",
                         "default": False,
-                        "description": "Retourner uniquement les altitudes"
+                        "description": "true: retourne tableau simple d'altitudes. false (défaut): objets complets {lon,lat,z}"
                     },
                 },
                 "required": ["lon", "lat"],
