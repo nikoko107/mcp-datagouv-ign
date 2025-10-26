@@ -31,6 +31,18 @@ from spatial_processing import (
     intersect_geodata,
     reproject_geodata,
 )
+from ign_layers_catalog import (
+    WMTS_LAYERS,
+    WFS_LAYERS,
+    WMS_LAYERS,
+    CATEGORIES,
+    get_wmts_layer,
+    get_wfs_layer,
+    get_wms_layer,
+    search_layers,
+    get_layers_by_category,
+    get_all_categories
+)
 
 # Configuration
 API_BASE_URL = "https://www.data.gouv.fr/api/1"
@@ -168,6 +180,34 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
     # ====================================================================
     # IGN GÉOPLATEFORME
     # ====================================================================
+    elif name == "get_ign_layers_catalog":
+        # Utiliser le catalogue local au lieu des appels API lents
+        service_type = arguments.get("service_type", "all")
+        category = arguments.get("category")
+        query = arguments.get("query")
+
+        if query:
+            # Recherche par mots-clés
+            results = search_layers(query, service_type)
+        elif category:
+            # Filtrage par catégorie
+            results = get_layers_by_category(category, service_type)
+        else:
+            # Retourner toutes les couches principales
+            results = []
+            if service_type in ["wmts", "all"]:
+                results.extend([{"service": "WMTS", "id": k, **v} for k, v in WMTS_LAYERS.items()])
+            if service_type in ["wfs", "all"]:
+                results.extend([{"service": "WFS", "id": k, **v} for k, v in WFS_LAYERS.items()])
+            if service_type in ["wms", "all"]:
+                results.extend([{"service": "WMS", "id": k, **v} for k, v in WMS_LAYERS.items()])
+
+        return [TextContent(type="text", text=json.dumps({
+            "total": len(results),
+            "categories_available": get_all_categories(),
+            "layers": results
+        }, ensure_ascii=False, indent=2))]
+
     elif name == "list_wmts_layers":
         layers = await ign_services.list_wmts_layers(client)
         return [TextContent(type="text", text=json.dumps(layers, ensure_ascii=False, indent=2))]
@@ -652,8 +692,139 @@ async def list_tools() -> list[Tool]:
                 "required": ["dataset_id"],
             },
         ),
-        
-        # IGN GÉOPLATEFORME (9 outils)
+
+        # IGN GÉOPLATEFORME (10 outils : 1 catalogue + 9 services)
+        Tool(
+            name="get_ign_layers_catalog",
+            description="""Accéder au catalogue LOCAL des couches IGN principales (WMTS, WMS, WFS) - RECOMMANDÉ pour performance.
+
+🚀 **AVANTAGE** : Catalogue local instantané vs appels API GetCapabilities lents (centaines de couches)
+📋 **CONTENU** : 10 couches WMTS raster + 10 couches WFS vectorielles principales
+🎯 **USAGE** : Découverte rapide, recherche, filtrage par catégorie
+
+**POURQUOI UTILISER CE CATALOGUE ?**
+Les appels GetCapabilities IGN retournent des centaines de couches (très lent). Ce catalogue intègre les 20 couches les PLUS UTILISÉES avec leurs métadonnées complètes.
+
+**COUCHES WMTS/WMS PRINCIPALES** (tuiles/images raster) :
+- Plan IGN V2 : Carte topographique moderne
+- Orthophotos : Photos aériennes 20cm-5m
+- Cadastre : Parcelles cadastrales
+- Cartes IGN 25000 : Scan série bleue randonnée
+- Altitudes/Pentes : MNT colorisé
+- Réseaux routiers
+- Occupation du sol (agriculture, Corine Land Cover)
+
+**COUCHES WFS PRINCIPALES** (données vectorielles) :
+- Communes (36000), Départements (101), Régions (18), EPCI
+- Bâtiments BD TOPO (50 millions)
+- Routes (3 millions de tronçons)
+- Hydrographie (plans d'eau, cours d'eau)
+- Végétation (zones arborées)
+- Parcelles cadastrales (100 millions)
+
+**MÉTADONNÉES RETOURNÉES** :
+- ID de la couche (pour get_wmts_tile_url, get_wfs_features, etc.)
+- Titre et description détaillée
+- Catégorie (Cartes topographiques, Imagerie, Cadastre, Découpage administratif, etc.)
+- Formats supportés (PNG, JPEG, WebP, GeoJSON)
+- Niveaux de zoom min/max (WMTS)
+- Type de géométrie et nombre d'entités (WFS)
+- Attributs disponibles (WFS : nom, code_insee, population, etc.)
+- Fréquence de mise à jour
+- Usage recommandé et cas d'usage
+
+**PARAMÈTRES DE FILTRAGE** :
+
+1. **service_type** (optionnel) : Filtrer par type de service
+   - "wmts" : Tuiles raster pré-générées uniquement
+   - "wfs" : Données vectorielles uniquement
+   - "wms" : Images raster à la demande uniquement
+   - "all" : Tous les services (défaut)
+
+2. **category** (optionnel) : Filtrer par catégorie
+   - "Cartes topographiques"
+   - "Imagerie"
+   - "Cadastre"
+   - "Altimétrie"
+   - "Réseaux"
+   - "Occupation du sol"
+   - "Découpage administratif"
+   - "Bâti"
+   - "Hydrographie"
+   - "Végétation"
+
+3. **query** (optionnel) : Recherche textuelle
+   - Recherche dans ID, titre, description, catégorie
+   - Exemples : "cadastre", "commune", "orthophoto", "route", "altitude"
+
+**EXEMPLES D'UTILISATION** :
+
+1. Lister toutes les couches principales (sans paramètres) :
+   → Retourne 20 couches WMTS/WMS + WFS avec métadonnées
+
+2. Couches WMTS uniquement (tuiles pour fond de carte) :
+   service_type="wmts"
+   → 10 couches raster (Plan IGN, Orthophotos, etc.)
+
+3. Couches WFS uniquement (vecteurs pour analyse) :
+   service_type="wfs"
+   → 10 couches vectorielles (Communes, Bâtiments, etc.)
+
+4. Filtrer par catégorie Découpage administratif :
+   category="Découpage administratif"
+   → Communes, Départements, Régions, EPCI
+
+5. Recherche "cadastre" :
+   query="cadastre"
+   → Parcelles cadastrales (WMTS + WFS)
+
+6. Recherche "orthophoto" pour fond de carte satellite :
+   query="orthophoto", service_type="wmts"
+   → ORTHOIMAGERY.ORTHOPHOTOS avec métadonnées
+
+**WORKFLOW RECOMMANDÉ** :
+
+1. **Découverte** : get_ign_layers_catalog() → Voir toutes les couches disponibles
+2. **Sélection** : Filtrer par category ou query pour trouver la bonne couche
+3. **Utilisation** : Utiliser l'ID retourné dans :
+   - get_wmts_tile_url() : Pour tuiles raster
+   - get_wfs_features() : Pour données vectorielles GeoJSON
+   - get_wms_map_url() : Pour images personnalisées
+
+**AVANTAGES vs list_wmts_layers/list_wfs_features** :
+- ⚡ **Performance** : Instantané (catalogue local) vs lent (API GetCapabilities)
+- 🎯 **Pertinence** : 20 couches principales vs centaines de couches
+- 📋 **Métadonnées** : Complètes (usage, attributs, fréquence MAJ) vs minimales
+- 🔍 **Recherche** : Intégrée (query, category) vs parsing manuel
+- 🔄 **Maintenance** : Catalogue mis à jour avec nouvelles versions MCP
+
+**QUAND UTILISER list_wmts_layers/list_wfs_features ?**
+- Recherche de couches spécialisées non présentes dans le catalogue
+- Découverte exhaustive de toutes les couches IGN (usage avancé)
+- Vérification des couches récemment ajoutées par IGN
+
+**MISE À JOUR DU CATALOGUE** :
+Le catalogue est maintenu avec les versions MCP. Couches stables (communes, orthophotos, etc.) changent rarement. Pour couches récentes/spécialisées, utiliser list_wmts_layers/list_wfs_features.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "service_type": {
+                        "type": "string",
+                        "enum": ["wmts", "wfs", "wms", "all"],
+                        "default": "all",
+                        "description": "Type de service à filtrer : wmts (tuiles), wfs (vecteurs), wms (images), all (tous)"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Filtrer par catégorie : 'Cartes topographiques', 'Imagerie', 'Cadastre', 'Découpage administratif', 'Bâti', 'Hydrographie', etc."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Recherche textuelle dans ID, titre, description (ex: 'cadastre', 'commune', 'orthophoto', 'route', 'altitude')"
+                    }
+                },
+            },
+        ),
         Tool(
             name="list_wmts_layers",
             description="""Lister toutes les couches cartographiques WMTS (Web Map Tile Service) disponibles sur la Géoplateforme IGN.
