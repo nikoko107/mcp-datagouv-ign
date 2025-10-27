@@ -699,28 +699,39 @@ async def list_tools() -> list[Tool]:
             description="""Accéder au catalogue LOCAL des couches IGN principales (WMTS, WMS, WFS) - RECOMMANDÉ pour performance.
 
 🚀 **AVANTAGE** : Catalogue local instantané vs appels API GetCapabilities lents (centaines de couches)
-📋 **CONTENU** : 10 couches WMTS raster + 10 couches WFS vectorielles principales
-🎯 **USAGE** : Découverte rapide, recherche, filtrage par catégorie
+📋 **CONTENU** : 40+ couches WMTS/WMS raster + 25+ couches WFS vectorielles
+🎯 **USAGE** : Découverte rapide, recherche PAR TYPE (pas par territoire)
+
+⚠️ **IMPORTANT - COUVERTURE GÉOGRAPHIQUE** :
+Les couches IGN couvrent TOUTE LA FRANCE MÉTROPOLITAINE et DOM-TOM.
+→ NE PAS rechercher par territoire (Paris, Lyon, Bretagne, etc.)
+→ RECHERCHER PAR TYPE : photos aériennes, hydrographie, cartes historiques, bâtiments, cadastre, etc.
+→ Utiliser ensuite BBOX pour limiter la zone lors de l'extraction des données (WFS, WMS)
 
 **POURQUOI UTILISER CE CATALOGUE ?**
-Les appels GetCapabilities IGN retournent des centaines de couches (très lent). Ce catalogue intègre les 20 couches les PLUS UTILISÉES avec leurs métadonnées complètes.
+Les appels GetCapabilities IGN retournent des centaines de couches (très lent). Ce catalogue intègre 60+ couches essentielles avec métadonnées complètes.
 
-**COUCHES WMTS/WMS PRINCIPALES** (tuiles/images raster) :
-- Plan IGN V2 : Carte topographique moderne
-- Orthophotos : Photos aériennes 20cm-5m
+**COUCHES WMTS/WMS PRINCIPALES** (40+ tuiles/images raster - couverture France) :
+- Cartes topographiques : Plan IGN V2, MAPS, Scan 25 Tour, Scan Express variants
+- Imagerie : Orthophotos actuelles, photos IRC infrarouges, Coast 2000
 - Cadastre : Parcelles cadastrales
-- Cartes IGN 25000 : Scan série bleue randonnée
-- Altitudes/Pentes : MNT colorisé
-- Réseaux routiers
-- Occupation du sol (agriculture, Corine Land Cover)
+- Altimétrie : MNT colorisé, pentes, courbes de niveau, SRTM mondial
+- Réseaux : Routes, voies ferrées, pistes aéroportuaires
+- Occupation du sol : Agriculture 2020/2021, Corine Land Cover, forêts
+- Environnement : Natura 2000 (SIC, ZPS), Parcs Nationaux/Régionaux, Réserves Naturelles
+- Historique : Cartes Cassini XVIII°, État-Major XIX°
+- Géologie, maritime, risques
 
-**COUCHES WFS PRINCIPALES** (données vectorielles) :
-- Communes (36000), Départements (101), Régions (18), EPCI
-- Bâtiments BD TOPO (50 millions)
-- Routes (3 millions de tronçons)
-- Hydrographie (plans d'eau, cours d'eau)
-- Végétation (zones arborées)
-- Parcelles cadastrales (100 millions)
+**COUCHES WFS PRINCIPALES** (25+ données vectorielles - couverture France) :
+- Découpage administratif : Communes (36000), Départements (101), Régions (18), EPCI, Arrondissements, Cantons
+- Bâtiments BD TOPO : Bâtiments (50M), Constructions surfaciques/linéaires
+- Réseaux : Tronçons routiers (3M), nœuds routiers, voies ferrées
+- Hydrographie : Plans d'eau, cours d'eau
+- Végétation : Zones arborées
+- Équipements : Réservoirs, pylônes
+- Cadastre : Parcelles (100M), sections, bâtiments cadastraux
+- Adresses : Base Adresse Nationale (BAN)
+- Zones protégées
 
 **MÉTADONNÉES RETOURNÉES** :
 - ID de la couche (pour get_wmts_tile_url, get_wfs_features, etc.)
@@ -736,12 +747,12 @@ Les appels GetCapabilities IGN retournent des centaines de couches (très lent).
 **PARAMÈTRES DE FILTRAGE** :
 
 1. **service_type** (optionnel) : Filtrer par type de service
-   - "wmts" : Tuiles raster pré-générées uniquement
-   - "wfs" : Données vectorielles uniquement
-   - "wms" : Images raster à la demande uniquement
+   - "wmts" : Tuiles raster pré-générées uniquement (40+ couches)
+   - "wfs" : Données vectorielles uniquement (25+ couches)
+   - "wms" : Images raster à la demande uniquement (40+ couches, identiques WMTS)
    - "all" : Tous les services (défaut)
 
-2. **category** (optionnel) : Filtrer par catégorie
+2. **category** (optionnel) : Filtrer par catégorie thématique (17 catégories disponibles)
    - "Cartes topographiques"
    - "Imagerie"
    - "Cadastre"
@@ -752,49 +763,68 @@ Les appels GetCapabilities IGN retournent des centaines de couches (très lent).
    - "Bâti"
    - "Hydrographie"
    - "Végétation"
+   - "Environnement" (aires protégées)
+   - "Historique" (cartes anciennes)
+   - "Géologie"
+   - "Maritime"
+   - "Équipements"
+   - "Adresses"
+   - "Risques"
 
-3. **query** (optionnel) : Recherche textuelle
+3. **query** (optionnel) : Recherche textuelle PAR TYPE (pas par territoire)
    - Recherche dans ID, titre, description, catégorie
-   - Exemples : "cadastre", "commune", "orthophoto", "route", "altitude"
+   - ✅ BON : "orthophoto", "cadastre", "commune", "route", "altitude", "hydrographie", "historique"
+   - ❌ MAUVAIS : "Paris", "Lyon", "Bretagne" (les couches couvrent toute la France)
+   - Utiliser BBOX ensuite pour limiter la zone géographique
 
 **EXEMPLES D'UTILISATION** :
 
 1. Lister toutes les couches principales (sans paramètres) :
-   → Retourne 20 couches WMTS/WMS + WFS avec métadonnées
+   → Retourne 60+ couches WMTS/WMS + WFS avec métadonnées
 
 2. Couches WMTS uniquement (tuiles pour fond de carte) :
    service_type="wmts"
-   → 10 couches raster (Plan IGN, Orthophotos, etc.)
+   → 40+ couches raster (Plan IGN, Orthophotos, Cassini, etc.)
 
 3. Couches WFS uniquement (vecteurs pour analyse) :
    service_type="wfs"
-   → 10 couches vectorielles (Communes, Bâtiments, etc.)
+   → 25+ couches vectorielles (Communes, Bâtiments, Routes, etc.)
 
 4. Filtrer par catégorie Découpage administratif :
    category="Découpage administratif"
-   → Communes, Départements, Régions, EPCI
+   → Communes, Départements, Régions, EPCI, Arrondissements, Cantons
 
-5. Recherche "cadastre" :
+5. Recherche PAR TYPE "cadastre" (pas par ville) :
    query="cadastre"
-   → Parcelles cadastrales (WMTS + WFS)
+   → Parcelles cadastrales WMTS + WFS (couverture France entière)
+   → Utiliser ensuite BBOX pour extraire zone spécifique
 
 6. Recherche "orthophoto" pour fond de carte satellite :
    query="orthophoto", service_type="wmts"
-   → ORTHOIMAGERY.ORTHOPHOTOS avec métadonnées
+   → ORTHOIMAGERY.ORTHOPHOTOS (France entière, résolution 20cm-5m)
+
+7. Cartes historiques :
+   category="Historique"
+   → Cartes Cassini XVIII°, État-Major XIX°
+
+8. Aires protégées environnementales :
+   category="Environnement"
+   → Sites Natura 2000 (SIC, ZPS), Parcs Nationaux/Régionaux, Réserves Naturelles
 
 **WORKFLOW RECOMMANDÉ** :
 
-1. **Découverte** : get_ign_layers_catalog() → Voir toutes les couches disponibles
-2. **Sélection** : Filtrer par category ou query pour trouver la bonne couche
-3. **Utilisation** : Utiliser l'ID retourné dans :
-   - get_wmts_tile_url() : Pour tuiles raster
-   - get_wfs_features() : Pour données vectorielles GeoJSON
-   - get_wms_map_url() : Pour images personnalisées
+1. **Découverte par TYPE** : get_ign_layers_catalog(query="hydrographie") → Couches d'eau France entière
+2. **Sélection** : Filtrer par category ou query pour trouver le type de couche recherché
+3. **Extraction zone** : Utiliser l'ID retourné dans :
+   - get_wmts_tile_url(layer="...", zoom=...) : Tuiles raster (pas de BBOX, zoom contrôle zone visible)
+   - get_wfs_features(typename="...", bbox="2.25,48.81,2.42,48.90") : Données vectorielles zone Paris
+   - get_wms_map_url(layers="...", bbox="...", width=..., height=...) : Image zone personnalisée
 
 **AVANTAGES vs list_wmts_layers/list_wfs_features** :
-- ⚡ **Performance** : Instantané (catalogue local) vs lent (API GetCapabilities)
-- 🎯 **Pertinence** : 20 couches principales vs centaines de couches
-- 📋 **Métadonnées** : Complètes (usage, attributs, fréquence MAJ) vs minimales
+- ⚡ **Performance** : Instantané (catalogue local) vs lent (API GetCapabilities 2-5s)
+- 🎯 **Pertinence** : 60+ couches essentielles vs 200-500 couches techniques
+- 📋 **Métadonnées** : Complètes (usage, attributs, fréquence MAJ, couverture) vs minimales
+- 🗺️ **Couverture** : Indication claire "France entière" pour éviter recherches territoriales inutiles
 - 🔍 **Recherche** : Intégrée (query, category) vs parsing manuel
 - 🔄 **Maintenance** : Catalogue mis à jour avec nouvelles versions MCP
 
