@@ -48,7 +48,9 @@ from response_cache import (
     get_cached_data,
     list_cached_items,
     should_cache_response,
-    clear_cache
+    clear_cache,
+    export_cached_data,
+    extract_geometry_coordinates
 )
 
 # Configuration
@@ -693,6 +695,31 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
             "total_cached_items": len(cached_items),
             "items": cached_items
         }
+
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+    elif name == "export_cached_data":
+        cache_id = arguments["cache_id"]
+        output_path = arguments["output_path"]
+
+        result = export_cached_data(cache_id, output_path)
+
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+    elif name == "extract_geometry_coordinates":
+        cache_id = arguments["cache_id"]
+        max_points = arguments.get("max_points", 100)
+
+        result = extract_geometry_coordinates(cache_id, max_points)
+
+        if result is None:
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": "Cache not found or no geometry available",
+                    "cache_id": cache_id
+                }, ensure_ascii=False, indent=2)
+            )]
 
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
@@ -3128,66 +3155,33 @@ Utile avant d'analyser la superficie de chaque île séparément.""",
             },
         ),
 
-        # CACHE SYSTÈME (2 outils)
+        # CACHE SYSTÈME (4 outils)
         Tool(
             name="get_cached_data",
-            description="""Récupérer des données précédemment cachées (itinéraires, isochrones, WFS, profils altimétriques).
+            description="""Consulter les métadonnées d'un cache (itinéraires, isochrones, WFS, profils).
 
-⚡ **PROBLÈME RÉSOLU** : Les réponses API volumineuses (milliers de coordonnées) saturent le contexte Claude.
+⚠️ **IMPORTANT** : Cet outil retourne SEULEMENT les métadonnées, JAMAIS les données volumineuses.
 
-🎯 **SOLUTION** :
-- Les outils calculate_route, calculate_isochrone, get_wfs_features, get_elevation_line cachent AUTOMATIQUEMENT leurs résultats
-- Vous recevez des MÉTADONNÉES légères (distance, durée, bbox, nb de points) + cache_id
-- Utilisez cet outil pour récupérer les DONNÉES COMPLÈTES si nécessaire
+📋 **MÉTADONNÉES RETOURNÉES** :
+- file_path : Chemin du fichier cache
+- summary : Résumé (distance, durée, bbox, nb_points, etc.)
+- created_at, expires_at : Dates de création/expiration
+- tool_name, params : Outil et paramètres d'origine
 
-📋 **MÉTADONNÉES RETOURNÉES** (sans saturer le contexte) :
-- **Itinéraire** : distance, durée, bbox, start/end, nb de points géométrie, nb de steps
-- **Isochrone** : point, temps/distance, bbox, nb de points polygone
-- **WFS** : typename, nb de features, exemple première feature
-- **Profil altimétrique** : nb points, altitude min/max, dénivelé
+**POUR ACCÉDER AUX DONNÉES COMPLÈTES** :
+- 📤 export_cached_data() : Exporte fichier vers Downloads
+- 🗺️ extract_geometry_coordinates() : Extrait coordonnées échantillonnées (<100 points)
 
-🔄 **QUAND RÉCUPÉRER LES DONNÉES COMPLÈTES** :
-- ✅ Pour afficher/traiter/exporter les géométries complètes
-- ✅ Pour analyses spatiales (buffer, clip, intersect sur données complètes)
-- ✅ Pour récupérer attributs détaillés (noms de rues, instructions navigation)
-- ❌ Si métadonnées suffisent pour répondre à la question (ex: "Quelle est la distance ?")
-
-💾 **CACHE** :
-- Fichiers stockés dans ~/.mcp_cache/french_opendata/
-- Expiration automatique après 24h
-- Nettoyage automatique des vieux fichiers
-
-**WORKFLOW TYPIQUE** :
-1. calculate_route(...) → Reçoit métadonnées + cache_id
-2. Répondre à l'utilisateur avec distance/durée (métadonnées suffisent)
-3. SI besoin géométrie complète → get_cached_data(cache_id, include_full_data=true)
-
-**EXEMPLES** :
-
-1. Utilisateur demande distance Paris-Lyon :
-   - calculate_route() → cache_id + métadonnées (distance: 465km)
-   - Répondre "465 km" (PAS besoin des données complètes)
-
-2. Utilisateur veut afficher itinéraire sur carte :
-   - calculate_route() → cache_id + métadonnées
-   - get_cached_data(cache_id, include_full_data=true) → géométrie LineString complète
-   - Fournir GeoJSON à l'utilisateur pour affichage
-
-3. Utilisateur veut liste des communes dans isochrone :
-   - calculate_isochrone() → cache_id + bbox
-   - get_cached_data(cache_id, include_full_data=true) → polygone complet
-   - Utiliser spatial ops (intersect) avec couche communes""",
+**WORKFLOW** :
+1. calculate_route() → Métadonnées + cache_id
+2. Répondre distance/durée (métadonnées suffisent)
+3. Si besoin export → export_cached_data(cache_id, ~/Downloads/route.json)""",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "cache_id": {
                         "type": "string",
-                        "description": "ID du cache retourné par un outil (ex: 'calculate_route_1234567890_a1b2c3d4')"
-                    },
-                    "include_full_data": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Inclure les données complètes (géométries, steps, features). False = seulement métadonnées (recommandé par défaut)"
+                        "description": "ID du cache (ex: 'calculate_route_1234567890_a1b2c3d4')"
                     }
                 },
                 "required": ["cache_id"],
@@ -3195,31 +3189,102 @@ Utile avant d'analyser la superficie de chaque île séparément.""",
         ),
         Tool(
             name="list_cached_data",
-            description="""Lister tous les items en cache avec leurs métadonnées (itinéraires, isochrones, WFS, profils).
+            description="""Lister tous les caches disponibles avec métadonnées.
 
-🗂️ **USAGE** : Voir tous les calculs récents disponibles en cache
-
-📋 **INFORMATIONS RETOURNÉES** :
-- cache_id : ID pour récupération
-- tool_name : Outil d'origine (calculate_route, calculate_isochrone, etc.)
-- created_at : Date/heure de création
-- expires_at : Date/heure d'expiration (24h)
-- file_size_kb : Taille du fichier
-- summary : Résumé léger des données
-
-**EXEMPLES** :
-
-1. Vérifier si un itinéraire précédent existe :
-   list_cached_data() → Voir tous les calculate_route récents
-
-2. Retrouver un calcul fait il y a 1h :
-   list_cached_data() → Identifier cache_id → get_cached_data(cache_id)
-
-3. Nettoyer le contexte en fin de session :
-   list_cached_data() → Informer l'utilisateur des données disponibles""",
+📋 **INFORMATIONS** : cache_id, tool_name, created_at, expires_at, file_size_kb, summary""",
             inputSchema={
                 "type": "object",
                 "properties": {},
+            },
+        ),
+        Tool(
+            name="export_cached_data",
+            description="""Exporter un fichier cache vers un emplacement accessible (Downloads, Desktop, etc.).
+
+💾 **USAGE** : Exporter données complètes sans saturer contexte Claude
+
+**AVANTAGES** :
+- ✅ Données complètes accessibles par l'utilisateur
+- ✅ Pas de saturation contexte
+- ✅ Fichier JSON exploitable (OpenLayers, Leaflet, QGIS, etc.)
+
+**EXEMPLES** :
+
+1. Export itinéraire vers Downloads :
+   export_cached_data(cache_id, "~/Downloads/route_paris_lyon.json")
+
+2. Export isochrone vers Bureau :
+   export_cached_data(cache_id, "~/Desktop/isochrone_30min.json")
+
+3. Export WFS vers dossier projet :
+   export_cached_data(cache_id, "~/projet/data/communes.geojson")
+
+**RÉSULTAT** :
+- success : true/false
+- output_path : Chemin absolu du fichier exporté
+- file_size_bytes : Taille du fichier
+
+L'utilisateur peut ensuite utiliser le fichier dans son code.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cache_id": {
+                        "type": "string",
+                        "description": "ID du cache à exporter"
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Chemin de destination (ex: ~/Downloads/route.json, ~/Desktop/data.geojson)"
+                    }
+                },
+                "required": ["cache_id", "output_path"],
+            },
+        ),
+        Tool(
+            name="extract_geometry_coordinates",
+            description="""Extraire coordonnées géométriques avec échantillonnage intelligent (max 100 points).
+
+🗺️ **USAGE** : Obtenir aperçu de la géométrie sans saturer contexte
+
+**FONCTIONNEMENT** :
+- Si geometry <100 points → Retourne TOUS les points
+- Si geometry >100 points → Échantillonnage uniforme (début, fin, points intermédiaires)
+- Retourne : coordinates, total_points, sampled (true/false), bbox
+
+**TYPES SUPPORTÉS** :
+- LineString (itinéraires)
+- Polygon (isochrones)
+- MultiPolygon (statistiques seulement)
+
+**EXEMPLES** :
+
+1. Aperçu itinéraire (2847 points → 100 échantillonnés) :
+   extract_geometry_coordinates(cache_id, max_points=100)
+   → coordinates: [100 points], sampling_ratio: "100/2847"
+
+2. Petit tracé (<100 points) :
+   extract_geometry_coordinates(cache_id)
+   → coordinates: [tous les points], sampled: false
+
+3. Calcul profil altimétrique :
+   extract_geometry_coordinates(cache_id, max_points=50)
+   → 50 coordonnées → Passer à get_elevation_line()
+
+**AVANTAGE** : Géométrie exploitable SANS saturer contexte Claude""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cache_id": {
+                        "type": "string",
+                        "description": "ID du cache"
+                    },
+                    "max_points": {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Nombre max de points à retourner (défaut: 100)"
+                    }
+                },
+                "required": ["cache_id"],
             },
         ),
     ]

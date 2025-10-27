@@ -256,14 +256,14 @@ def cache_response(data: Dict[str, Any], tool_name: str, params: Dict[str, Any])
 
 def get_cached_data(cache_id: str, include_full_data: bool = False) -> Optional[Dict[str, Any]]:
     """
-    Récupère des données cachées.
+    Récupère SEULEMENT les métadonnées d'un cache (JAMAIS les données complètes).
 
     Args:
         cache_id: ID du cache
-        include_full_data: Si True, inclut les données complètes (à éviter pour grosses données)
+        include_full_data: DÉPRÉCIÉ - Ignoré pour éviter saturation contexte
 
     Returns:
-        Métadonnées + optionnellement données complètes
+        Métadonnées + file_path pour accès externe
     """
     # Vérifier métadonnées
     meta_path = _get_metadata_path(cache_id)
@@ -286,12 +286,10 @@ def get_cached_data(cache_id: str, include_full_data: bool = False) -> Optional[
 
     result = metadata.copy()
 
-    # Inclure données complètes si demandé
+    # IMPORTANT : Ne JAMAIS inclure full_data (saturait contexte Claude)
+    # L'utilisateur peut accéder au fichier via file_path
     if include_full_data:
-        cache_path = _get_cache_path(cache_id)
-        if cache_path.exists():
-            with open(cache_path, "r", encoding="utf-8") as f:
-                result["full_data"] = json.load(f)
+        result["warning"] = "include_full_data ignoré pour préserver contexte. Utilisez export_cached_data() pour exporter le fichier."
 
     return result
 
@@ -331,3 +329,131 @@ def clear_cache():
             file.unlink()
         except Exception:
             pass
+
+
+def export_cached_data(cache_id: str, output_path: str) -> Dict[str, Any]:
+    """
+    Exporte un fichier cache vers un emplacement accessible à l'utilisateur.
+
+    Args:
+        cache_id: ID du cache
+        output_path: Chemin de destination (ex: ~/Downloads/route.json)
+
+    Returns:
+        Informations sur l'export
+    """
+    cache_path = _get_cache_path(cache_id)
+    if not cache_path.exists():
+        return {
+            "success": False,
+            "error": "Cache not found or expired",
+            "cache_id": cache_id
+        }
+
+    # Résoudre le chemin avec expansion ~
+    output_path_resolved = Path(output_path).expanduser().resolve()
+
+    # Créer dossier parent si nécessaire
+    output_path_resolved.parent.mkdir(parents=True, exist_ok=True)
+
+    # Copier le fichier
+    import shutil
+    shutil.copy2(cache_path, output_path_resolved)
+
+    return {
+        "success": True,
+        "cache_id": cache_id,
+        "output_path": str(output_path_resolved),
+        "file_size_bytes": output_path_resolved.stat().st_size,
+        "message": f"Données exportées vers {output_path_resolved}"
+    }
+
+
+def extract_geometry_coordinates(cache_id: str, max_points: int = 100) -> Optional[Dict[str, Any]]:
+    """
+    Extrait SEULEMENT les coordonnées géométriques d'un cache (échantillonnage intelligent).
+
+    Pour itinéraires/isochrones volumineux, retourne :
+    - Coordonnées échantillonnées (max_points)
+    - Statistiques (nb total points, bbox, etc.)
+
+    Args:
+        cache_id: ID du cache
+        max_points: Nombre max de points à retourner (échantillonnage uniforme)
+
+    Returns:
+        Géométrie simplifiée + statistiques
+    """
+    cache_path = _get_cache_path(cache_id)
+    if not cache_path.exists():
+        return None
+
+    with open(cache_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    tool_name = cache_id.split("_")[0] + "_" + cache_id.split("_")[1]  # Ex: calculate_route
+
+    result = {
+        "cache_id": cache_id,
+        "tool_name": tool_name,
+    }
+
+    # Extraire géométrie selon type
+    geometry = data.get("geometry")
+    if not geometry:
+        return None
+
+    geom_type = geometry.get("type")
+    coords = geometry.get("coordinates", [])
+
+    if geom_type == "LineString":
+        # Itinéraire : LineString avec potentiellement milliers de points
+        total_points = len(coords)
+        result["geometry_type"] = "LineString"
+        result["total_points"] = total_points
+
+        # Échantillonnage uniforme
+        if total_points <= max_points:
+            result["coordinates"] = coords
+            result["sampled"] = False
+        else:
+            # Garder début, fin, et points intermédiaires uniformément espacés
+            step = total_points / max_points
+            indices = [0] + [int(i * step) for i in range(1, max_points - 1)] + [total_points - 1]
+            result["coordinates"] = [coords[i] for i in indices]
+            result["sampled"] = True
+            result["sampling_ratio"] = f"{max_points}/{total_points}"
+
+    elif geom_type == "Polygon":
+        # Isochrone : Polygon (premier ring seulement)
+        if coords and len(coords) > 0:
+            ring = coords[0]
+            total_points = len(ring)
+            result["geometry_type"] = "Polygon"
+            result["total_points"] = total_points
+
+            # Échantillonnage
+            if total_points <= max_points:
+                result["coordinates"] = [ring]  # GeoJSON Polygon format
+                result["sampled"] = False
+            else:
+                step = total_points / max_points
+                indices = [int(i * step) for i in range(max_points)]
+                result["coordinates"] = [[ring[i] for i in indices]]
+                result["sampled"] = True
+                result["sampling_ratio"] = f"{max_points}/{total_points}"
+
+    elif geom_type == "MultiPolygon":
+        # Isochrone complexe
+        total_points = sum(len(ring) for polygon in coords for ring in polygon)
+        result["geometry_type"] = "MultiPolygon"
+        result["total_points"] = total_points
+        result["polygons_count"] = len(coords)
+        # Pour MultiPolygon, retourner seulement statistiques (trop complexe)
+        result["message"] = "MultiPolygon trop complexe pour extraction. Utilisez export_cached_data() pour fichier complet."
+
+    # Ajouter bbox si disponible
+    if "bbox" in data:
+        result["bbox"] = data["bbox"]
+
+    return result
