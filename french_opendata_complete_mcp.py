@@ -43,6 +43,13 @@ from ign_layers_catalog import (
     get_layers_by_category,
     get_all_categories
 )
+from response_cache import (
+    cache_response,
+    get_cached_data,
+    list_cached_items,
+    should_cache_response,
+    clear_cache
+)
 
 # Configuration
 API_BASE_URL = "https://www.data.gouv.fr/api/1"
@@ -274,7 +281,19 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
         response.raise_for_status()
         data = response.json()
 
-        return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+        # Ajouter métadonnées pour cache
+        result = {
+            **data,
+            "typename": typename,
+            "bbox_filter": bbox
+        }
+
+        # Cache automatique si >50 features
+        if should_cache_response(result, "get_wfs_features"):
+            cached_result = cache_response(result, "get_wfs_features", arguments)
+            return [TextContent(type="text", text=json.dumps(cached_result, ensure_ascii=False, indent=2))]
+
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     # ====================================================================
     # API ADRESSE
@@ -440,8 +459,17 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
             "duration": route_data.get("duration"),
             "geometry": route_data.get("geometry"),
             "bbox": route_data.get("bbox"),
-            "portions": route_data.get("portions", [])
+            "portions": route_data.get("portions", []),
+            "start": arguments["start"],
+            "end": arguments["end"],
+            "profile": arguments.get("profile"),
+            "resource": arguments.get("resource", "bdtopo-osrm")
         }
+
+        # Cache automatique pour éviter saturation contexte Claude
+        if should_cache_response(result, "calculate_route"):
+            cached_result = cache_response(result, "calculate_route", arguments)
+            return [TextContent(type="text", text=json.dumps(cached_result, ensure_ascii=False, indent=2))]
 
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
@@ -459,7 +487,23 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
             time_unit=arguments.get("time_unit", "hour")
         )
 
-        return [TextContent(type="text", text=json.dumps(isochrone_data, ensure_ascii=False, indent=2))]
+        # Ajouter métadonnées pour cache
+        result = {
+            **isochrone_data,
+            "point": arguments["point"],
+            "time": arguments["cost_value"] if arguments.get("cost_type", "time") == "time" else None,
+            "distance": arguments["cost_value"] if arguments.get("cost_type", "time") == "distance" else None,
+            "direction": arguments.get("direction", "departure"),
+            "profile": arguments.get("profile"),
+            "resource": arguments.get("resource", "bdtopo-valhalla")
+        }
+
+        # Cache automatique pour éviter saturation contexte Claude
+        if should_cache_response(result, "calculate_isochrone"):
+            cached_result = cache_response(result, "calculate_isochrone", arguments)
+            return [TextContent(type="text", text=json.dumps(cached_result, ensure_ascii=False, indent=2))]
+
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     # ====================================================================
     # IGN ALTIMETRIE
@@ -493,7 +537,20 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
             zonly=arguments.get("zonly", False)
         )
 
-        result = profile_data
+        # Ajouter métadonnées pour cache
+        result = {
+            **profile_data,
+            "lon": arguments["lon"],
+            "lat": arguments["lat"],
+            "sampling": arguments.get("sampling", 50)
+        }
+
+        # Cache automatique pour profils longs
+        if should_cache_response(result, "get_elevation_line"):
+            cached_result = cache_response(result, "get_elevation_line", arguments)
+            return [TextContent(type="text", text=json.dumps(cached_result, ensure_ascii=False, indent=2))]
+
+        # Si pas caché, retourner avec summary si disponible
         if "height_differences" in profile_data:
             hd = profile_data["height_differences"]
             summary = {
@@ -606,6 +663,37 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
             keep_index=arguments.get("keep_index", False),
             output_format=arguments.get("output_format"),
         )
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+    # ====================================================================
+    # CACHE SYSTÈME
+    # ====================================================================
+    elif name == "get_cached_data":
+        cache_id = arguments["cache_id"]
+        include_full_data = arguments.get("include_full_data", False)
+
+        cached_data = get_cached_data(cache_id, include_full_data)
+
+        if cached_data is None:
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": "Cache not found or expired",
+                    "cache_id": cache_id,
+                    "message": "Ce cache n'existe pas ou a expiré (durée de vie: 24h). Relancez le calcul original."
+                }, ensure_ascii=False, indent=2)
+            )]
+
+        return [TextContent(type="text", text=json.dumps(cached_data, ensure_ascii=False, indent=2))]
+
+    elif name == "list_cached_data":
+        cached_items = list_cached_items()
+
+        result = {
+            "total_cached_items": len(cached_items),
+            "items": cached_items
+        }
+
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     else:
@@ -3037,6 +3125,101 @@ Utile avant d'analyser la superficie de chaque île séparément.""",
                     },
                 },
                 "required": ["data", "input_format"],
+            },
+        ),
+
+        # CACHE SYSTÈME (2 outils)
+        Tool(
+            name="get_cached_data",
+            description="""Récupérer des données précédemment cachées (itinéraires, isochrones, WFS, profils altimétriques).
+
+⚡ **PROBLÈME RÉSOLU** : Les réponses API volumineuses (milliers de coordonnées) saturent le contexte Claude.
+
+🎯 **SOLUTION** :
+- Les outils calculate_route, calculate_isochrone, get_wfs_features, get_elevation_line cachent AUTOMATIQUEMENT leurs résultats
+- Vous recevez des MÉTADONNÉES légères (distance, durée, bbox, nb de points) + cache_id
+- Utilisez cet outil pour récupérer les DONNÉES COMPLÈTES si nécessaire
+
+📋 **MÉTADONNÉES RETOURNÉES** (sans saturer le contexte) :
+- **Itinéraire** : distance, durée, bbox, start/end, nb de points géométrie, nb de steps
+- **Isochrone** : point, temps/distance, bbox, nb de points polygone
+- **WFS** : typename, nb de features, exemple première feature
+- **Profil altimétrique** : nb points, altitude min/max, dénivelé
+
+🔄 **QUAND RÉCUPÉRER LES DONNÉES COMPLÈTES** :
+- ✅ Pour afficher/traiter/exporter les géométries complètes
+- ✅ Pour analyses spatiales (buffer, clip, intersect sur données complètes)
+- ✅ Pour récupérer attributs détaillés (noms de rues, instructions navigation)
+- ❌ Si métadonnées suffisent pour répondre à la question (ex: "Quelle est la distance ?")
+
+💾 **CACHE** :
+- Fichiers stockés dans ~/.mcp_cache/french_opendata/
+- Expiration automatique après 24h
+- Nettoyage automatique des vieux fichiers
+
+**WORKFLOW TYPIQUE** :
+1. calculate_route(...) → Reçoit métadonnées + cache_id
+2. Répondre à l'utilisateur avec distance/durée (métadonnées suffisent)
+3. SI besoin géométrie complète → get_cached_data(cache_id, include_full_data=true)
+
+**EXEMPLES** :
+
+1. Utilisateur demande distance Paris-Lyon :
+   - calculate_route() → cache_id + métadonnées (distance: 465km)
+   - Répondre "465 km" (PAS besoin des données complètes)
+
+2. Utilisateur veut afficher itinéraire sur carte :
+   - calculate_route() → cache_id + métadonnées
+   - get_cached_data(cache_id, include_full_data=true) → géométrie LineString complète
+   - Fournir GeoJSON à l'utilisateur pour affichage
+
+3. Utilisateur veut liste des communes dans isochrone :
+   - calculate_isochrone() → cache_id + bbox
+   - get_cached_data(cache_id, include_full_data=true) → polygone complet
+   - Utiliser spatial ops (intersect) avec couche communes""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cache_id": {
+                        "type": "string",
+                        "description": "ID du cache retourné par un outil (ex: 'calculate_route_1234567890_a1b2c3d4')"
+                    },
+                    "include_full_data": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Inclure les données complètes (géométries, steps, features). False = seulement métadonnées (recommandé par défaut)"
+                    }
+                },
+                "required": ["cache_id"],
+            },
+        ),
+        Tool(
+            name="list_cached_data",
+            description="""Lister tous les items en cache avec leurs métadonnées (itinéraires, isochrones, WFS, profils).
+
+🗂️ **USAGE** : Voir tous les calculs récents disponibles en cache
+
+📋 **INFORMATIONS RETOURNÉES** :
+- cache_id : ID pour récupération
+- tool_name : Outil d'origine (calculate_route, calculate_isochrone, etc.)
+- created_at : Date/heure de création
+- expires_at : Date/heure d'expiration (24h)
+- file_size_kb : Taille du fichier
+- summary : Résumé léger des données
+
+**EXEMPLES** :
+
+1. Vérifier si un itinéraire précédent existe :
+   list_cached_data() → Voir tous les calculate_route récents
+
+2. Retrouver un calcul fait il y a 1h :
+   list_cached_data() → Identifier cache_id → get_cached_data(cache_id)
+
+3. Nettoyer le contexte en fin de session :
+   list_cached_data() → Informer l'utilisateur des données disponibles""",
+            inputSchema={
+                "type": "object",
+                "properties": {},
             },
         ),
     ]
