@@ -15,7 +15,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import hashlib
 
