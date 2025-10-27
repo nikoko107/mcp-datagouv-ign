@@ -457,3 +457,37 @@ def extract_geometry_coordinates(cache_id: str, max_points: int = 100) -> Option
         result["bbox"] = data["bbox"]
 
     return result
+
+
+def get_full_geometry_for_processing(cache_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Récupère la géométrie COMPLÈTE d'un cache pour traitement INTERNE uniquement.
+
+    ⚠️ USAGE INTERNE : Cette fonction charge les données complètes en mémoire
+    mais NE DOIT PAS retourner les données brutes à Claude.
+
+    À utiliser UNIQUEMENT pour traiter les données et retourner un RÉSULTAT CONDENSÉ.
+
+    Args:
+        cache_id: ID du cache
+
+    Returns:
+        Géométrie complète (coordinates uniquement, pas de métadonnées volumineuses)
+    """
+    cache_path = _get_cache_path(cache_id)
+    if not cache_path.exists():
+        return None
+
+    with open(cache_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Extraire SEULEMENT la géométrie (pas les portions/steps/features)
+    geometry = data.get("geometry")
+    if not geometry:
+        return None
+
+    return {
+        "type": geometry.get("type"),
+        "coordinates": geometry.get("coordinates"),
+        "bbox": data.get("bbox")
+    }

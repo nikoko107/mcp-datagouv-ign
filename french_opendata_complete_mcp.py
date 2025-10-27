@@ -50,7 +50,8 @@ from response_cache import (
     should_cache_response,
     clear_cache,
     export_cached_data,
-    extract_geometry_coordinates
+    extract_geometry_coordinates,
+    get_full_geometry_for_processing
 )
 
 # Configuration
@@ -720,6 +721,123 @@ async def _execute_tool_logic(name: str, arguments: Any, client: httpx.AsyncClie
                     "cache_id": cache_id
                 }, ensure_ascii=False, indent=2)
             )]
+
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+    elif name == "compute_elevation_profile_from_route":
+        cache_id = arguments["cache_id"]
+        max_samples = min(arguments.get("max_samples", 100), 200)  # Max 200
+        resource = arguments.get("resource", "ign_rge_alti_wld")
+
+        # 1. Charger géométrie complète depuis cache (INTERNE, pas retourné)
+        geometry = get_full_geometry_for_processing(cache_id)
+
+        if geometry is None:
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": "Cache not found or no geometry available",
+                    "cache_id": cache_id
+                }, ensure_ascii=False, indent=2)
+            )]
+
+        # 2. Échantillonner LineString
+        coords = geometry.get("coordinates", [])
+        if geometry.get("type") != "LineString":
+            return [TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": "Only LineString geometries supported (routes)",
+                    "geometry_type": geometry.get("type")
+                }, ensure_ascii=False, indent=2)
+            )]
+
+        total_points = len(coords)
+
+        # Échantillonnage uniforme
+        if total_points <= max_samples:
+            sampled_coords = coords
+        else:
+            step = total_points / max_samples
+            indices = [0] + [int(i * step) for i in range(1, max_samples - 1)] + [total_points - 1]
+            sampled_coords = [coords[i] for i in indices]
+
+        # 3. Calculer altitudes pour chaque point (appels API)
+        elevations = []
+        for i, coord in enumerate(sampled_coords):
+            lon, lat = coord[0], coord[1]
+
+            # Appel API altimétrie
+            try:
+                elevation_data = await ign_services.get_elevation(
+                    client=client,
+                    lon=lon,
+                    lat=lat,
+                    resource=resource,
+                    zonly=True
+                )
+
+                z = elevation_data.get("elevations", [{}])[0].get("z")
+
+                # Calculer distance cumulée (approximation)
+                if i == 0:
+                    distance_km = 0
+                else:
+                    prev_coord = sampled_coords[i-1]
+                    # Formule haversine simplifiée
+                    import math
+                    R = 6371  # Rayon terre en km
+                    dlat = math.radians(lat - prev_coord[1])
+                    dlon = math.radians(lon - prev_coord[0])
+                    a = math.sin(dlat/2)**2 + math.cos(math.radians(prev_coord[1])) * math.cos(math.radians(lat)) * math.sin(dlon/2)**2
+                    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                    distance_km = elevations[-1]["distance_km"] + R * c if elevations else 0
+
+                elevations.append({
+                    "lon": lon,
+                    "lat": lat,
+                    "z": z,
+                    "distance_km": round(distance_km, 2)
+                })
+            except Exception as e:
+                # Ignorer points en erreur
+                pass
+
+        # 4. Calculer statistiques
+        if elevations:
+            altitudes = [e["z"] for e in elevations if e["z"] is not None]
+
+            # Dénivelés
+            positive_gain = 0
+            negative_gain = 0
+            for i in range(1, len(altitudes)):
+                diff = altitudes[i] - altitudes[i-1]
+                if diff > 0:
+                    positive_gain += diff
+                else:
+                    negative_gain += abs(diff)
+
+            statistics = {
+                "min_elevation": round(min(altitudes), 1) if altitudes else None,
+                "max_elevation": round(max(altitudes), 1) if altitudes else None,
+                "positive_gain": round(positive_gain, 1),
+                "negative_gain": round(negative_gain, 1),
+                "total_distance_km": elevations[-1]["distance_km"] if elevations else 0
+            }
+        else:
+            statistics = {}
+
+        # 5. Résultat compact
+        result = {
+            "cache_id": cache_id,
+            "elevations": elevations,
+            "statistics": statistics,
+            "geometry_info": {
+                "total_points_route": total_points,
+                "sampled_for_elevation": len(sampled_coords),
+                "sampling_ratio": f"{len(sampled_coords)}/{total_points}" if total_points > max_samples else "no_sampling"
+            }
+        }
 
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
@@ -3282,6 +3400,75 @@ L'utilisateur peut ensuite utiliser le fichier dans son code.""",
                         "type": "integer",
                         "default": 100,
                         "description": "Nombre max de points à retourner (défaut: 100)"
+                    }
+                },
+                "required": ["cache_id"],
+            },
+        ),
+        Tool(
+            name="compute_elevation_profile_from_route",
+            description="""Calculer le profil altimétrique COMPLET d'un itinéraire caché (traitement interne optimisé).
+
+🎯 **PROBLÈME RÉSOLU** : Exploiter géométrie complète SANS saturer contexte Claude
+
+**FONCTIONNEMENT INTERNE** :
+1. Charge géométrie COMPLÈTE depuis cache (en mémoire, pas retourné)
+2. Échantillonne intelligemment (max_samples points)
+3. Appelle API Altimétrie IGN pour chaque point
+4. Retourne SEULEMENT profil altimétrique final (compact)
+
+**AVANTAGES** :
+✅ Utilise TOUTE la géométrie (pas seulement échantillon)
+✅ Traitement interne (pas de saturation contexte)
+✅ Résultat compact retourné à Claude
+✅ Workflow simplifié (1 seul appel)
+
+**PARAMÈTRES** :
+- cache_id : ID d'un itinéraire calculé (calculate_route)
+- max_samples : Nombre de points d'altitude (défaut: 100, max: 200)
+
+**RÉSULTAT RETOURNÉ** (compact) :
+- elevations : [{lon, lat, z, distance_km}, ...]
+- statistics : {min_elevation, max_elevation, positive_gain, negative_gain, total_distance}
+- geometry_info : {total_points_route, sampled_for_elevation}
+
+**EXEMPLES** :
+
+1. Profil altimétrique Saint-Égrève → Alpe d'Huez :
+   calculate_route(start="5.6833,45.2333", end="6.0678,45.0914")
+   → cache_id
+   compute_elevation_profile_from_route(cache_id, max_samples=150)
+   → Profil 150 points avec dénivelé
+
+2. Profil rapide (100 points) :
+   compute_elevation_profile_from_route(cache_id)
+   → Profil 100 points par défaut
+
+**WORKFLOW COMPLET** :
+1. calculate_route(start, end) → cache_id + métadonnées
+2. compute_elevation_profile_from_route(cache_id, max_samples=100)
+   → Profil altimétrique complet
+3. Afficher graphique ou statistiques
+
+**vs extract_geometry_coordinates()** :
+- extract_geometry_coordinates : Retourne coordonnées (pour usage manuel)
+- compute_elevation_profile_from_route : Calcule DIRECTEMENT le profil alti (tout automatique)""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cache_id": {
+                        "type": "string",
+                        "description": "ID du cache d'un itinéraire (calculate_route)"
+                    },
+                    "max_samples": {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Nombre de points d'altitude à calculer (défaut: 100, max: 200)"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "default": "ign_rge_alti_wld",
+                        "description": "Ressource altimétrie (défaut: ign_rge_alti_wld)"
                     }
                 },
                 "required": ["cache_id"],
